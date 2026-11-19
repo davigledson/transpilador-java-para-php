@@ -11,11 +11,15 @@ dotted_name    := dotted_part { "." dotted_part }
 dotted_part    := ID | TYPEID
 
 top_decl_list  := top_decl { top_decl }
-top_decl       := class_decl | interface_decl
+top_decl       := class_decl | interface_decl | enum_decl
 class_decl     := modifiers "class" TYPEID extends_opt implements_opt
                   "{" class_body "}"
 interface_decl := modifiers "interface" TYPEID extends_opt
                   "{" interface_body "}"
+enum_decl      := modifiers "enum" TYPEID "{" enum_constants_opt "}"
+enum_constants_opt := enum_constants | ε
+enum_constants := enum_constant { "," enum_constant } [ "," ]
+enum_constant  := ID | TYPEID
 extends_opt    := "extends" class_ref | ε
 implements_opt := "implements" name_list | ε
 name_list      := ID { "," ID }
@@ -56,6 +60,7 @@ stmt           := block
                 | "try" block catch_list [ "finally" block ]
                 | "try" block "finally" block
                 | "throw" expr ";"
+                | "switch" "(" expr ")" "{" switch_body "}"
                 | "return" [ expr ] ";"
                 | "break" ";"
                 | "continue" ";"
@@ -64,10 +69,14 @@ stmt           := block
                 | ";"
 catch_list     := catch_clause { catch_clause }
 catch_clause   := "catch" "(" type ID ")" block
+switch_body    := { switch_clause }
+switch_clause  := "case" expr ":" stmt_list
+                | "default" ":" stmt_list
 block          := "{" { stmt } "}"
-local_decl     := type ID [ "=" expr ]
+local_decl     := type ID [ "=" expr ] | "var" ID "=" expr
 for_header     := for_init ";" [ expr ] ";" [ expr ]         (* clássico *)
                 | type ID ":" expr                           (* for-each *)
+                | "var" ID ":" expr
 for_init       := local_decl | expr | ε
 
 expr           := assignment
@@ -77,9 +86,12 @@ or_expr        := and_expr { "||" and_expr }
 and_expr       := equality { "&&" equality }
 equality       := relational { ( "==" | "!=" ) relational }
 relational     := additive { ( "<" | "<=" | ">" | ">=" ) additive }
+                | relational "instanceof" type
 additive       := multiplicative { ( "+" | "-" ) multiplicative }
 multiplicative := unary { ( "*" | "/" | "%" ) unary }
-unary          := ( "!" | "-" | "+" | "++" | "--" ) unary | postfix
+unary          := ( "!" | "-" | "+" | "++" | "--" ) unary
+                | "(" type ")" unary                          (* cast *)
+                | postfix
 postfix        := primary { "." ID | "(" args_opt ")" | "[" expr "]"
                           | "++" | "--" }
 primary        := INT_LIT | DOUBLE_LIT | STRING_LIT | CHAR_LIT
@@ -87,7 +99,13 @@ primary        := INT_LIT | DOUBLE_LIT | STRING_LIT | CHAR_LIT
                 | "new" class_ref generic_args_opt "(" args_opt ")"
                 | "new" array_type "[" expr "]"
                 | "(" expr ")"
+                | ID "->" lambda_body
+                | "(" ")" "->" lambda_body
+                | "(" ID "," ID { "," ID } ")" "->" lambda_body
                 | ID | TYPEID "." ID | STRING "." ID
+                | TYPEID "." "class" | STRING "." "class"
+                | primitive "." "class"
+lambda_body    := expr | block
 array_type     := ( "int" | "double" | "boolean" | "char" | "String"
                   | "long" | "float" | "byte" | "short" | class_ref )
 args_opt       := args | ε
@@ -114,9 +132,16 @@ tratada como `TYPEID` e pode falhar. É um caso raro e documentado.
 | Situação | Decisão |
 |---|---|
 | `else` pendente | precedência `ELSE` (shift) |
-| cast `(int) x` | não implementado nesta versão |
+| cast `(int) x` | `LPAREN type RPAREN unary`; tipos primitivos/classes |
 | `new T[n]` vs `new T(...)` | lookahead `[` vs `(` |
 | construtor vs método | `TYPEID "("` vs `type ID "("` |
 | `for` clássico vs for-each | lookahead `;` vs `:` |
-| genéricos | `ArrayList`/`List`, `HashMap`/`Map`, `HashSet`/`Set`; apagados no PHP |
+| genéricos | `ArrayList`/`List`, `HashMap`/`Map`, `HashSet`/`Set`, `Stream`, `Class`; apagados no PHP |
 | arrays `T[]` | suportados via `TYPEID` + `[]` |
+
+## Pacotes e namespaces
+
+`package a.b;` vira `namespace a\b;`; `import a.b.C;` vira
+`use a\b\C;` (wildcards de pacotes do projeto são expandidos). O
+`bootstrap.php` do modo projeto indexa as classes pelo nome qualificado
+(`a\b\C`) e o `run.php` chama a `main` pelo FQN.

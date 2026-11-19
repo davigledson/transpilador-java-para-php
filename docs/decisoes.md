@@ -124,6 +124,126 @@ customizado (`SaldoInsuficienteException`).
 try-with-resources; `printStackTrace` vai para stderr, sem stack trace do
 Java.
 
+## 10.5. `switch`
+
+**Decisão:** suportar o `switch` statement clássico (`case`, `default`,
+fallthrough e `break`) para `int`, `char` e `String`.
+**Motivo:** é controle de fluxo comum e barato de mapear para PHP.
+**Consequência:** o gerador avalia a expressão uma vez em `$__switchN` e usa
+`switch (true)` com comparações `===`, preservando a semântica estrita do
+Java para `String`/`char`.
+**Limitações:** sem `switch`-expression/arrow, sem labels e sem `continue`
+dentro do `switch`.
+
+## 10.6. Enums simples
+
+**Decisão:** mapear `enum` com constantes para `enum` do PHP 8.1; acessos
+`Status.ATIVO` viram `Status::ATIVO`; `switch` sobre enum usa `===`.
+**Motivo:** fechar o domínio de `switch`/tipos e permitir modelagem simples
+de estados.
+**Consequência:** `Status s = Status.ATIVO`, `s == Status.ATIVO` e
+`switch (s) { case ATIVO: ... }` funcionam; `println(s)` imprime `ATIVO`
+via `JString::valueOf` (`UnitEnum`).
+**Limitações:** enums só com constantes; sem campos, métodos, `values()` ou
+`ordinal()`.
+
+## 10.7. Lambdas e streams
+
+**Decisão:** suportar lambdas de expressão em contextos de coleções/streams,
+mapeadas para `fn(...) => ...` do PHP, e um `JStream` eager para
+`filter`/`map`/`forEach`/`count`/`anyMatch`/`allMatch`/`noneMatch`/
+`limit`/`sorted`.
+**Motivo:** fechar o paradigma funcional sem implementar interfaces
+funcionais genéricas nem um pipeline lazy completo.
+**Consequência:** `nomes.forEach(n -> ...)`, `nomes.removeIf(n -> ...)` e
+`nomes.stream().filter(...).map(...).collect(Collectors.toList())` funcionam;
+`collect` vira `->toList()`.
+**Limitações:** lambda só de expressão, sem method references, sem streams
+paralelos e sem `Collectors` além de `toList()`.
+
+## 10.8. Modo projeto
+
+**Decisão:** se a entrada for um diretório, transpilar todos os `.java`
+recursivamente, com coleta global de tipos e uma única análise semântica;
+gerar um `.php` por arquivo Java, um `bootstrap.php` com autoloader e um
+`run.php` para a classe `main`.
+**Motivo:** permitir projetos com várias classes sem exigir que o usuário
+monte `require`/ordem de carregamento manualmente.
+**Consequência:** `transpilar src/ -o build --main Main` gera
+`build/bootstrap.php`, `build/run.php` e os módulos PHP preservando subpastas.
+**Limitações:** nomes simples precisam ser únicos (sem aliases/namespaces
+duplicados), sem `.jar` e sem build incremental.
+
+## 10.12. `package` → namespace
+
+**Decisão:** mapear `package a.b` para `namespace a\b;` e `import a.b.C`
+para `use a\b\C;` (incluindo wildcard quando o pacote é do projeto).
+**Motivo:** projetos Java com pacotes devem gerar PHP com namespaces e
+autoloader por FQN.
+**Consequência:** `bootstrap.php` indexa classes pelo nome qualificado;
+`run.php` chama `\a\Main::main(...)`; classes de outros pacotes usam `use`
+ou FQN.
+**Limitações:** nomes simples duplicados ainda são rejeitados; imports
+externos são ignorados; aliases manuais de `use` não são suportados.
+
+## 10.13. Source level Java 21
+
+**Decisão:** manter o mesmo subconjunto, mas declarar e testar source level
+21, com diagnósticos explícitos para recursos modernos ainda não suportados.
+**Motivo:** o código aceito já é Java 21 válido; o que falta é sintaxe nova,
+não uma mudança no pipeline.
+**Consequência:** os testes usam `javac --release 21`; `record`, `sealed`,
+`switch` arrow/expression, `yield`, try-with-resources, multi-catch e
+`@interface` falham com mensagem clara em vez de erro genérico.
+**Limitações:** não são esses recursos que estão implementados; eles apenas
+são diagnosticados.
+
+## 10.14. `var`
+
+**Decisão:** inferir o tipo de variáveis locais declaradas com `var`,
+inclusive em `for` clássico e `for-each`.
+**Motivo:** é a forma mais comum em código Java moderno e não exige mudança
+no codegen além de omitir o tipo local.
+**Consequência:** `var x = 1;` vira `$x = 1;`; `var` sem inicializador ou
+com `null` é erro; campos e parâmetros continuam exigindo tipo explícito.
+**Limitações:** sem `var` em lambda/catch/try-with-resources.
+
+## 10.9. Text blocks e anotações com argumentos
+
+**Decisão:** suportar text blocks (`"""`) no lexer e remover os argumentos de
+anotações antes do parsing, preservando linhas/colunas.
+**Motivo:** permitir que o parser avance em código Java moderno sem
+implementar semântica de framework.
+**Consequência:** `@Column(name = "x", length = 150)` vira apenas
+`@Column` + espaços; text blocks viram string normal com indentação e
+escapes processados.
+**Limitações:** anotações continuam sem efeito semântico; `@interface` e
+class literals dentro de anotações não são suportados.
+
+## 10.10. Casts e `instanceof`
+
+**Decisão:** suportar casts primitivos (`int`, `double`, `char`) e de
+referência, além de `instanceof` para classes/interfaces/String/arrays.
+**Motivo:** são operações comuns em código OO e permitem polimorfismo com
+checagem de tipo.
+**Consequência:** `(char) 65` vira `chr(65)`, `(int) 'a'` vira `ord("a")`,
+`(Conta) obj` vira `JCast::to(...)` e `obj instanceof Conta` vira
+`instanceof` do PHP.
+**Limitações:** sem unboxing/casts entre primitivos e wrappers; casts de
+array só verificam `array` em runtime.
+
+## 10.11. Class literals
+
+**Decisão:** mapear `X.class`, `int.class` e `String.class` para
+`JClass::of(...)`, com `getName`, `getSimpleName`, `isInstance` e `toString`.
+**Motivo:** permitir código que usa `Class` como valor sem implementar
+reflection completa.
+**Consequência:** `Conta.class.getSimpleName()` vira
+`JClass::of(Conta::class)->getSimpleName()`; `println(Conta.class)` imprime
+`class Conta`.
+**Limitações:** sem `getMethods`/`getFields`/`newInstance`; nomes de classes
+com pacote são resolvidos via namespace/use.
+
 ## 11. Sobrecarga rejeitada
 
 **Decisão:** métodos com mesmo nome são erro; construtores podem variar a
