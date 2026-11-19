@@ -223,11 +223,16 @@ class Continue(Node):
 
 @dataclass
 class Catch(Node):
-    type: JavaType
+    types: list[JavaType]
     name: str
     body: Block
     line: int = 0
     col: int = 0
+
+    @property
+    def type(self) -> JavaType:
+        """Primeiro tipo do catch (compatibilidade com catch simples)."""
+        return self.types[0]
 
 
 @dataclass
@@ -235,6 +240,7 @@ class Try(Node):
     body: Block
     catches: list[Catch]
     finally_: Block | None
+    resources: list[LocalVarDecl] = field(default_factory=list)
     line: int = 0
     col: int = 0
 

@@ -185,6 +185,49 @@ def test_try_catch_finally_and_throw_syntax() -> None:
     assert isinstance(stmt.body.stmts[0], ast.Throw)
 
 
+def test_try_with_resources_syntax() -> None:
+    program = parse(
+        """
+        class A {
+            void m() {
+                try (Recurso r = new Recurso();
+                     var s = new Recurso();) {
+                    System.out.println(r);
+                }
+            }
+        }
+        class Recurso implements AutoCloseable {
+            public void close() { }
+        }
+        """
+    )
+    stmt = program.classes[0].members[0].body.stmts[0]
+    assert isinstance(stmt, ast.Try)
+    assert [resource.name for resource in stmt.resources] == ["r", "s"]
+    assert stmt.resources[0].type.name == "Recurso"
+    assert stmt.resources[1].type is None
+
+
+def test_multi_catch_syntax() -> None:
+    program = parse(
+        """
+        class A {
+            void m() {
+                try {
+                    System.out.println("x");
+                } catch (RuntimeException | Error e) {
+                    System.out.println(e.getMessage());
+                }
+            }
+        }
+        """
+    )
+    stmt = program.classes[0].members[0].body.stmts[0]
+    assert isinstance(stmt, ast.Try)
+    assert [t.name for t in stmt.catches[0].types] == ["RuntimeException", "Error"]
+    assert stmt.catches[0].name == "e"
+
+
 def test_switch_syntax() -> None:
     program = parse(
         """
@@ -384,11 +427,6 @@ def test_switch_arrow_and_expression_syntax() -> None:
         ("public record Ponto(int x) { }", "record"),
         ("public @interface Foo { }", "@interface"),
         ("sealed class A { }", "sealed"),
-        ("class A { void m() { try (var x = 1) { } } }", "try-with-resources"),
-        (
-            "class A { void m() { try { } catch (RuntimeException | Error e) { } } }",
-            "multi-catch",
-        ),
     ],
 )
 def test_unsupported_java21_diagnostics(source: str, message: str) -> None:

@@ -59,6 +59,7 @@ stmt           := block
                 | "for" "(" for_header ")" stmt
                 | "try" block catch_list [ "finally" block ]
                 | "try" block "finally" block
+                | "try" "(" resources ")" block [ catch_list ] [ "finally" block ]
                 | "throw" expr ";"
                 | "switch" "(" expr ")" "{" switch_body "}"
                 | "yield" expr ";"
@@ -70,6 +71,9 @@ stmt           := block
                 | ";"
 catch_list     := catch_clause { catch_clause }
 catch_clause   := "catch" "(" type ID ")" block
+                | "catch" "(" type "|" type_list ID ")" block
+type_list      := type { "|" type }
+resources      := local_decl { ";" local_decl } [ ";" ]
 switch_body    := { switch_clause }
 switch_clause  := "case" expr ":" stmt_list
                 | "default" ":" stmt_list

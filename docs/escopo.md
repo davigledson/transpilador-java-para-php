@@ -45,7 +45,9 @@ limitação.
 | `HashMap`/`Map` | `put`, `get`, `containsKey`, `containsValue`, `remove`, `size`, `isEmpty`, `clear`, `keySet`, `values`, `toString`; chaves escalares por valor, objetos por identidade |
 | `HashSet`/`Set` | `add`, `contains`, `remove`, `size`, `isEmpty`, `clear`, `toString`, `for-each`; igualdade estrita do PHP |
 | `Scanner` | `next`, `nextInt`, `nextDouble`, `nextLine`, `hasNext*`, `close`; lê de stdin |
-| exceções | sem checagem de exceções checadas, sem multi-catch e sem try-with-resources; `printStackTrace` vai para stderr |
+| exceções | sem checagem de exceções checadas; `printStackTrace` vai para stderr |
+| try-with-resources | um ou mais recursos (inclusive `var`), fechamento em ordem inversa antes de `catch`/`finally` |
+| multi-catch | `catch (A \| B e)` com tipos de exceção não relacionados; o parâmetro recebe o supertipo comum |
 | `switch` | `continue` dentro do switch, labels e pattern matching em `switch` |
 | enums | só constantes; sem campos, métodos, `values()` ou `ordinal()` |
 | lambdas/streams | lambda só de expressão, sem method references; `collect` só `Collectors.toList()`; sem streams paralelos/infinitos |
@@ -63,7 +65,7 @@ limitação.
 - Enums com campos/métodos, `values()` e `ordinal()`.
 - Genéricos em classes do usuário e tipos boxed.
 - Lambdas com bloco, method references, streams paralelos e `Collectors` além de `toList()`.
-- Multi-catch, try-with-resources e validação de exceções checadas (`throws` é ignorado).
+- Validação de exceções checadas (`throws` é ignorado) e exceções suprimidas.
 - Nomes simples duplicados em pacotes diferentes e aliases de `use`.
 - Spring/JPA/Lombok e reflection completa (`getMethods`, `getFields` etc.).
 - `continue` dentro de `switch`, labels e pattern matching em `switch`.
@@ -88,6 +90,6 @@ limitação.
 
 ## Métricas atuais
 
-- Exemplos no diff: **28/28**
-- Testes unitários: **107**
+- Exemplos no diff: **29/29**
+- Testes unitários: **115**
 - Linhas aproximadas do transpilador: ver `wc -l src/transpilador/*.py`

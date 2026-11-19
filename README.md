@@ -17,8 +17,9 @@ de prometer Java inteiro.
 - `ArrayList`/`List` com genéricos apagados (`ArrayList<String>`,
   `new ArrayList<>()`) e `Scanner` para `stdin`.
 - `HashMap`/`Map` e `HashSet`/`Set` com genéricos apagados.
-- Exceções: `try/catch/finally`, `throw`, `throws` (ignorado) e exceções
-  embutidas ou customizadas (`extends RuntimeException`).
+- Exceções: `try/catch/finally`, `throw`, `throws` (ignorado), exceções
+  embutidas ou customizadas (`extends RuntimeException`), multi-catch
+  (`catch (A | B e)`) e try-with-resources (`try (Recurso r = ...)`).
 - `switch` clássico e Java 21: `case`, `default`, fallthrough, `break`,
   arrow (`case 1 ->`) e `switch` expression com `yield`.
 - Enums simples (`enum Status { ATIVO, BLOQUEADO }`), acesso `Status.ATIVO`,
@@ -95,13 +96,11 @@ diagnóstico explícito, por exemplo:
 record Ponto(int x) { }        → record ainda não é suportado
 public @interface Foo { }      → @interface ainda não é suportado
 sealed class A { }             → sealed classes ainda não são suportadas
-try (...) { }                  → try-with-resources ainda não é suportado
-catch (A | B e)                → multi-catch ainda não é suportado
 ```
 
-Recursos como records, sealed, pattern matching em `switch` e
-try-with-resources ficam para fases futuras. `var`, `switch`
-arrow/expression e pattern `instanceof` já são suportados.
+Recursos como records, sealed e pattern matching em `switch` ficam para
+fases futuras. `var`, `switch` arrow/expression, pattern `instanceof`,
+try-with-resources e multi-catch já são suportados.
 
 ## Modo projeto (vários arquivos)
 
@@ -205,8 +204,8 @@ O transpilador falha com diagnóstico no formato:
 caminho/Arquivo.java:linha:coluna: erro: mensagem
 ```
 
-Exemplo: `String s = 1;` gera erro de tipo; `try-with-resources`, records,
-reflection e APIs de framework não fazem parte do subconjunto.
+Exemplo: `String s = 1;` gera erro de tipo; records, sealed, reflection e
+APIs de framework não fazem parte do subconjunto.
 
 
 ## Testes
@@ -220,7 +219,7 @@ make demo   # diferencial só do Banco
 ```
 
 O teste diferencial compila o `.java`, executa, transpila, roda `php -l`,
-executa o PHP e compara a saída. Hoje: **28/28 casos**.
+executa o PHP e compara a saída. Hoje: **29/29 casos**.
 
 O CI em `.github/workflows/ci.yml` roda `make check` em cada push/PR com
 Python, PHP 8.3 e JDK 21.
@@ -318,9 +317,9 @@ sobrecarga de métodos, classes internas, `LinkedHashMap`/`TreeMap`/`entrySet`,
 `StringBuilder`, threads e reflection. Genéricos existem só em
 `ArrayList`/`List`, `HashMap`/`Map`, `HashSet`/`Set` e `Stream`, e são
 apagados na geração.
-Exceções checadas não são validadas: `throws` é lido e ignorado; não há
-multi-catch nem try-with-resources. `switch` arrow/expression é suportado;
-`continue` dentro de `switch` ainda não. Enums têm só
+Exceções checadas não são validadas: `throws` é lido e ignorado.
+Try-with-resources e multi-catch são suportados. `switch`
+arrow/expression é suportado; `continue` dentro de `switch` ainda não. Enums têm só
 constantes: sem campos, métodos, `values()` ou `ordinal()`. Lambdas só com
 corpo de expressão, sem method references; `collect` só aceita
 `Collectors.toList()`.
@@ -342,8 +341,8 @@ Detalhes e a matriz completa estão em [`docs/escopo.md`](docs/escopo.md).
 - [x] Lexer/parser do subconjunto
 - [x] AST + análise semântica básica
 - [x] Codegen PHP + runtime
-- [x] 28 programas de exemplo passando no diff
-- [x] 107 testes unitários
+- [x] 29 programas de exemplo passando no diff
+- [x] 115 testes unitários
 - [x] Herança simples (`extends`, `super`, override, polimorfismo)
 - [x] Interfaces e classes abstratas
 - [x] `ArrayList`/`List` + `Scanner`
@@ -362,4 +361,5 @@ Detalhes e a matriz completa estão em [`docs/escopo.md`](docs/escopo.md).
 - [x] `var` (locals, `for` e `for-each`)
 - [x] `switch` arrow/expression + `yield`
 - [x] Pattern `instanceof` (`obj instanceof Conta c`)
+- [x] Try-with-resources e multi-catch
 - [ ] Relatório final e slides

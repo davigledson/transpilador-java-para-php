@@ -34,8 +34,10 @@ MAP_TYPES = {"HashMap", "Map"}
 SET_TYPES = {"HashSet", "Set"}
 STREAM_TYPES = {"Stream"}
 CLASS_TYPES = {"Class"}
+BUILTIN_INTERFACES = {"AutoCloseable", "Closeable"}
 EXCEPTION_TYPES = {
     "Throwable",
+    "Error",
     "Exception",
     "RuntimeException",
     "IllegalArgumentException",
@@ -46,6 +48,7 @@ EXCEPTION_TYPES = {
     "IOException",
 }
 EXCEPTION_PARENTS = {
+    "Error": "Throwable",
     "Exception": "Throwable",
     "RuntimeException": "Exception",
     "IllegalArgumentException": "RuntimeException",
@@ -200,6 +203,11 @@ class SemanticAnalyzer:
                 self._error("Scanner não aceita argumentos genéricos", node)
             return t
 
+        if t.name in BUILTIN_INTERFACES:
+            if t.args or t.dims:
+                self._error(f"'{t.name}' não aceita argumentos nem dimensões", node)
+            return t
+
         if t.dims > 0:
             base = ast.JavaType(t.name, 0, t.line, t.col, t.args)
             self._resolve_type(base, node, allow_void=False)
@@ -236,6 +244,7 @@ class SemanticAnalyzer:
             or t.name == "String"
             or t.name in LIBRARY_TYPES
             or t.name in EXCEPTION_TYPES
+            or t.name in BUILTIN_INTERFACES
             or (t.dims == 0 and t.name in self.classes)
         )
 
@@ -275,6 +284,44 @@ class SemanticAnalyzer:
         if t.name in self.classes:
             return self._class_is_exception(t.name)
         return False
+
+    def _is_closeable(self, t: ast.JavaType) -> bool:
+        if t.dims > 0:
+            return False
+        if t.name == "Scanner":
+            return True
+        if t.name in BUILTIN_INTERFACES:
+            return True
+        if t.name in self.classes:
+            return self._is_subtype(t.name, "AutoCloseable")
+        return False
+
+    def _exception_supertypes(self, name: str) -> list[str]:
+        chain: list[str] = []
+        current: str | None = name
+        seen: set[str] = set()
+        while current and current not in seen:
+            seen.add(current)
+            chain.append(current)
+            if current in EXCEPTION_TYPES:
+                current = EXCEPTION_PARENTS.get(current)
+            else:
+                info = self.classes.get(current)
+                current = info.parent if info is not None else None
+        return chain
+
+    def _common_exception_type(
+        self,
+        types: list[ast.JavaType],
+        node: object,
+    ) -> ast.JavaType:
+        common = self._exception_supertypes(types[0].name)
+        for other in types[1:]:
+            ancestors = set(self._exception_supertypes(other.name))
+            common = [name for name in common if name in ancestors]
+        if not common:
+            self._error("tipos do multi-catch não têm supertipo comum", node)
+        return ast.JavaType(common[0])
 
     def _is_list_type(self, t: ast.JavaType) -> bool:
         return t.dims == 0 and t.name in LIST_TYPES
@@ -346,6 +393,8 @@ class SemanticAnalyzer:
                 return True
             if target.name == "int" and source.name == "char":
                 return True
+            if target.name in BUILTIN_INTERFACES and source.name in self.classes:
+                return self._is_subtype(source.name, target.name)
             if target.name in self.classes and source.name in self.classes:
                 return self._is_subtype(source.name, target.name)
         if (
@@ -408,6 +457,8 @@ class SemanticAnalyzer:
 
         def visit(name: str) -> bool:
             if name == parent:
+                return True
+            if name == "Closeable" and parent == "AutoCloseable":
                 return True
             if name in EXCEPTION_TYPES:
                 return self._builtin_exception_subtype(name, parent)
@@ -590,6 +641,17 @@ class SemanticAnalyzer:
             current = class_info.parent
 
         for iface in self._collect_interface_names(info.name):
+            if iface in BUILTIN_INTERFACES:
+                if (
+                    not info.is_abstract
+                    and self._find_concrete_method(info.name, "close") is None
+                ):
+                    self._error(
+                        f"classe concreta '{info.name}' não implementa o método "
+                        f"'close()' exigido por '{iface}'",
+                        info.node,
+                    )
+                continue
             interface_info = self.classes[iface]
             for name, method in interface_info.methods.items():
                 if name not in required:
@@ -662,7 +724,10 @@ class SemanticAnalyzer:
                             f"interface '{info.name}' não pode estender uma exceção",
                             info.node,
                         )
-                elif info.parent not in self.classes:
+                elif (
+                    info.parent not in self.classes
+                    and info.parent not in BUILTIN_INTERFACES
+                ):
                     self._error(
                         f"superclasse '{info.parent}' de '{info.name}' não encontrada",
                         info.node,
@@ -689,6 +754,8 @@ class SemanticAnalyzer:
             for iface in info.interfaces:
                 if iface == info.name:
                     self._error(f"'{info.name}' não pode implementar a si mesma", info.node)
+                if iface in BUILTIN_INTERFACES:
+                    continue
                 if iface not in self.classes:
                     self._error(
                         f"interface '{iface}' implementada por '{info.name}' não encontrada",
@@ -1088,14 +1155,46 @@ class SemanticAnalyzer:
             if not self._is_boolean(cond):
                 self._error(f"condição do do-while deve ser boolean, mas é {cond}", node.cond)
         elif isinstance(node, ast.Try):
-            self._check_stmt(node.body)
-            for catch in node.catches:
-                catch_type = self._resolve_type(catch.type, catch)
-                if not self._is_exception_type(catch_type):
+            self._push_scope()
+            for resource in node.resources:
+                if resource.init is None:
                     self._error(
-                        f"catch espera um tipo de exceção, mas recebeu {catch_type}",
-                        catch,
+                        "recurso de try-with-resources exige inicializador",
+                        resource,
                     )
+                self._check_stmt(resource)
+                resource_type = resource.inferred_type
+                if not self._is_closeable(resource_type):
+                    self._error(
+                        f"recurso de try-with-resources precisa ser "
+                        f"AutoCloseable, mas recebeu {resource_type}",
+                        resource,
+                    )
+            self._check_stmt(node.body)
+            self._pop_scope()
+
+            for catch in node.catches:
+                catch_types = [
+                    self._resolve_type(catch_type, catch)
+                    for catch_type in catch.types
+                ]
+                for catch_type in catch_types:
+                    if not self._is_exception_type(catch_type):
+                        self._error(
+                            f"catch espera um tipo de exceção, mas recebeu {catch_type}",
+                            catch,
+                        )
+                for index, first in enumerate(catch_types):
+                    for second in catch_types[index + 1 :]:
+                        if self._is_subtype(first.name, second.name) or self._is_subtype(
+                            second.name, first.name
+                        ):
+                            self._error(
+                                "multi-catch não pode combinar tipos relacionados: "
+                                f"{first} e {second}",
+                                catch,
+                            )
+                catch_type = self._common_exception_type(catch_types, catch)
                 self._push_scope()
                 self._declare(catch.name, catch_type, catch)
                 self._check_stmt(catch.body)

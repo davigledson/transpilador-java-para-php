@@ -17,8 +17,8 @@ O subconjunto cobre classes, herança, interfaces, classes abstratas, enums,
 exceções, `switch`, `ArrayList`/`HashMap`/`HashSet`, `Scanner`, lambdas,
 streams, casts, `instanceof` (com pattern binding), class literals, text
 blocks, anotações com argumentos e `package`/`import` mapeados para
-namespace/use do PHP. O resultado é validado por 107 testes unitários,
-28 programas no teste
+namespace/use do PHP. O resultado é validado por 115 testes unitários,
+29 programas no teste
 diferencial Java×PHP e um teste de projeto multi-arquivo, todos executados
 por `make check` e pelo CI.
 
@@ -119,7 +119,7 @@ As lacunas foram tratadas com quatro estratégias:
 | Estrutura | classes, campos, métodos, construtores, `this`, `new`, `static`, `final`, visibilidade |
 | Herança | `extends` simples, `super(...)`, `super.metodo(...)`, override, polimorfismo |
 | Interfaces/abstratas | `interface`, `implements` múltiplo, classes abstratas, métodos abstratos |
-| Exceções | `try/catch/finally`, `throw`, `throws` ignorado, exceções embutidas e customizadas |
+| Exceções | `try/catch/finally`, `throw`, `throws` ignorado, exceções embutidas e customizadas, multi-catch e try-with-resources |
 | Controle | `if/else`, `while`, `do/while`, `for`, `for-each`, `switch`, `break`, `continue` |
 | Enums | constantes, `Enum.CONSTANTE`, comparação, `switch` |
 | Coleções | `ArrayList`/`List`, `HashMap`/`Map`, `HashSet`/`Set` |
@@ -135,7 +135,7 @@ As lacunas foram tratadas com quatro estratégias:
 - Threads, `synchronized`, `volatile`, concorrência.
 - `.jar`/dependências externas, build incremental.
 - Sobrecarga de métodos do usuário.
-- `try-with-resources`, multi-catch, `switch`-expression/arrow.
+- Validação de exceções checadas (`throws` é ignorado) e exceções suprimidas.
 - `default`/`static`/`private` em interfaces e constantes de interface.
 - Genéricos em classes do usuário, wildcards e tipos boxed.
 - Classes internas/anônimas, records, sealed classes, `@interface`.
@@ -261,6 +261,8 @@ AST tipada
 | `(Conta) x` | `JCast::to(...)` |
 | `x instanceof Conta` | `instanceof` |
 | `x instanceof Conta c` | `($c = $x) instanceof Conta` |
+| `try (R r = expr) { }` | `$r = expr; try { ... } finally { close }` |
+| `catch (A \| B e)` | `catch (\A \| \B $e)` |
 | `Conta.class` | `JClass::of(Conta::class)` |
 | `new ArrayList<>()` | `new JArrayList()` |
 | `stream().filter(...)` | `->filter(fn($x) => ...)` |
@@ -324,8 +326,8 @@ make check
 ### 6.2 Números atuais
 
 ```text
-107 testes unitários
-28/28 casos no diff Java×PHP
+115 testes unitários
+29/29 casos no diff Java×PHP
 [projeto] OK
 php -l em todo o runtime
 ```
@@ -336,7 +338,7 @@ O corpus cobre: `Hello`, `Calculadora`, `FizzBuzz`, `Vetores`, `Textos`,
 `Utilitarios`, `Conta`, `Banco`, `HerancaConta`, `Animais`, `Formas`,
 `BancoLista`, `Leitura`, `MapaBanco`, `Conjunto`, `Excecoes`, `Escolhas`,
 `Enums`, `Lambdas`, `BancoMenu`, `Moderno`, `Casts`, `Classes`, `Estoque`,
-`Funcionarios`, `Variaveis`, `SwitchModerno` e `PatternInstanceof`.
+`Funcionarios`, `Variaveis`, `SwitchModerno`, `PatternInstanceof` e `Recursos`.
 
 O modo projeto usa `tests/project/src`, com `Main` em `package app`,
 `Conta`/`ContaCorrente` em `package model` e a exceção em `package error`.
@@ -387,7 +389,7 @@ Uma classe simples real (`BusinessException`) foi transpilada com sucesso.
 - Sem reflection completa.
 - Sem threads/concorrência.
 - Sem sobrecarga de métodos do usuário.
-- Sem multi-catch/try-with-resources.
+- Sem validação de exceções checadas e sem exceções suprimidas.
 - Sem pattern matching em `switch`.
 - Sem métodos `default`/`static`/`private` em interfaces.
 - Genéricos de usuário e tipos boxed não suportados.
@@ -400,7 +402,6 @@ Uma classe simples real (`BusinessException`) foi transpilada com sucesso.
 - Suporte a tipos externos como classes opacas.
 - `@interface` e anotações com semântica própria.
 - Sobrecarga com mangling.
-- `try-with-resources` e multi-catch.
 - Pattern matching em `switch`.
 - Reflection mínima além de `Class`.
 - Melhor fidelidade de `char`/UTF-16 e overflow.

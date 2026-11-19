@@ -530,13 +530,52 @@ class JavaParser:
         p[0] = ast.Try(body=p[2], catches=[], finally_=p[4], line=line, col=col)
 
     def p_stmt_try_resources(self, p):
-        "stmt : TRY LPAREN"
+        "stmt : TRY LPAREN resources RPAREN block catch_list finally_opt"
         line, col = self._pos(p, 1)
-        raise TranspileError(
-            "try-with-resources ainda não é suportado",
-            line,
-            col,
+        p[0] = ast.Try(
+            body=p[5],
+            catches=p[6],
+            finally_=p[7],
+            resources=p[3],
+            line=line,
+            col=col,
         )
+
+    def p_stmt_try_resources_finally(self, p):
+        "stmt : TRY LPAREN resources RPAREN block FINALLY block"
+        line, col = self._pos(p, 1)
+        p[0] = ast.Try(
+            body=p[5],
+            catches=[],
+            finally_=p[7],
+            resources=p[3],
+            line=line,
+            col=col,
+        )
+
+    def p_stmt_try_resources_only(self, p):
+        "stmt : TRY LPAREN resources RPAREN block"
+        line, col = self._pos(p, 1)
+        p[0] = ast.Try(
+            body=p[5],
+            catches=[],
+            finally_=None,
+            resources=p[3],
+            line=line,
+            col=col,
+        )
+
+    def p_resources_one(self, p):
+        "resources : local_decl"
+        p[0] = [p[1]]
+
+    def p_resources_many(self, p):
+        "resources : resources SEMI local_decl"
+        p[0] = p[1] + [p[3]]
+
+    def p_resources_trailing_semi(self, p):
+        "resources : resources SEMI"
+        p[0] = p[1]
 
     def p_catch_list_many(self, p):
         "catch_list : catch_list catch_clause"
@@ -549,16 +588,32 @@ class JavaParser:
     def p_catch_clause(self, p):
         "catch_clause : CATCH LPAREN type ID RPAREN block"
         line, col = self._pos(p, 1)
-        p[0] = ast.Catch(type=p[3], name=p[4], body=p[6], line=line, col=col)
+        p[0] = ast.Catch(
+            types=[p[3]],
+            name=p[4],
+            body=p[6],
+            line=line,
+            col=col,
+        )
 
     def p_catch_clause_multi(self, p):
-        "catch_clause : CATCH LPAREN type BITOR"
+        "catch_clause : CATCH LPAREN type BITOR type_list ID RPAREN block"
         line, col = self._pos(p, 1)
-        raise TranspileError(
-            "multi-catch (catch (A | B e)) ainda não é suportado",
-            line,
-            col,
+        p[0] = ast.Catch(
+            types=[p[3]] + p[5],
+            name=p[6],
+            body=p[8],
+            line=line,
+            col=col,
         )
+
+    def p_type_list_one(self, p):
+        "type_list : type"
+        p[0] = [p[1]]
+
+    def p_type_list_many(self, p):
+        "type_list : type_list BITOR type"
+        p[0] = p[1] + [p[3]]
 
     def p_finally_opt(self, p):
         "finally_opt : FINALLY block"

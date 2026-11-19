@@ -343,6 +343,52 @@ def test_cast_and_instanceof_codegen() -> None:
     assert "JCast::to($o, A::class)" in php
 
 
+def test_try_with_resources_and_multi_catch_codegen() -> None:
+    php = generate(
+        """
+        class Recurso implements AutoCloseable {
+            public void close() { }
+        }
+        class A {
+            void m() {
+                try (Recurso r = new Recurso(); Recurso s = new Recurso()) {
+                    System.out.println(r);
+                } catch (RuntimeException | Error e) {
+                    System.out.println(e.getMessage());
+                }
+            }
+        }
+        """
+    )
+    assert "catch (\\RuntimeException | \\Error $e)" in php
+    assert "$r = new Recurso();" in php
+    assert "$s = new Recurso();" in php
+    assert "if ($r !== null)" in php
+    assert "if ($s !== null)" in php
+    assert php.index("$s->close();") < php.index("$r->close();")
+    assert php.index("$r->close();") < php.index("catch (")
+
+
+def test_try_with_resources_without_handlers_codegen() -> None:
+    php = generate(
+        """
+        class Recurso implements AutoCloseable {
+            public void close() { }
+        }
+        class A {
+            void m() {
+                try (Recurso r = new Recurso()) {
+                    System.out.println(r);
+                }
+            }
+        }
+        """
+    )
+    assert "$r = new Recurso();" in php
+    assert "} finally {" in php
+    assert "$r->close();" in php
+
+
 def test_pattern_instanceof_codegen() -> None:
     php = generate(
         """

@@ -539,6 +539,7 @@ def collect_type_names(source: str) -> set[str]:
             "Stream",
             "Class",
             "Throwable",
+            "Error",
             "Exception",
             "RuntimeException",
             "IllegalArgumentException",
@@ -547,6 +548,8 @@ def collect_type_names(source: str) -> set[str]:
             "NullPointerException",
             "IndexOutOfBoundsException",
             "IOException",
+            "AutoCloseable",
+            "Closeable",
         }
     )
     return names

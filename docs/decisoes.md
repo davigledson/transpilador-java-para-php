@@ -120,9 +120,22 @@ classes de exceção do usuário que estendem uma exceção embutida.
 customizado (`SaldoInsuficienteException`).
 **Consequência:** o gerador emite `try/catch/finally`, `throw` e
 `class X extends \RuntimeException`; `getMessage`/`getCode` são mapeados.
-**Limitações:** não há checagem de exceções checadas, multi-catch ou
-try-with-resources; `printStackTrace` vai para stderr, sem stack trace do
-Java.
+**Limitações:** não há checagem de exceções checadas; `printStackTrace` vai
+para stderr, sem stack trace do Java.
+
+## 10.4.1. Multi-catch e try-with-resources
+
+**Decisão:** aceitar `catch (A | B e)` e `try (Recurso r = ...)`, inclusive
+com `var` e vários recursos.
+**Motivo:** são as formas modernas de tratamento de recursos e erros e
+aparecem juntas em código Java 21.
+**Consequência:** o multi-catch vira `catch (\A | \B $e)` no PHP; o parâmetro
+recebe o supertipo comum dos tipos. Try-with-resources é abaixado para
+`try/finally` aninhados, fechando os recursos em ordem inversa antes de
+`catch`/`finally`; recursos visíveis só no corpo do `try`.
+**Limitações:** sem exceções suprimidas; o recurso precisa implementar
+`AutoCloseable`/`Closeable` (ou ser `Scanner`); `Closeable` e
+`AutoCloseable` são interfaces do runtime PHP.
 
 ## 10.5. `switch`
 
@@ -203,8 +216,7 @@ externos são ignorados; aliases manuais de `use` não são suportados.
 21, com diagnósticos explícitos para recursos modernos ainda não suportados.
 **Motivo:** o código aceito já é Java 21 válido; o que falta é sintaxe nova,
 não uma mudança no pipeline.
-**Consequência:** os testes usam `javac --release 21`; `record`, `sealed`,
-`switch` arrow/expression, `yield`, try-with-resources, multi-catch e
+**Consequência:** os testes usam `javac --release 21`; `record`, `sealed` e
 `@interface` falham com mensagem clara em vez de erro genérico.
 **Limitações:** não são esses recursos que estão implementados; eles apenas
 são diagnosticados.
@@ -217,7 +229,8 @@ inclusive em `for` clássico e `for-each`.
 no codegen além de omitir o tipo local.
 **Consequência:** `var x = 1;` vira `$x = 1;`; `var` sem inicializador ou
 com `null` é erro; campos e parâmetros continuam exigindo tipo explícito.
-**Limitações:** sem `var` em lambda/catch/try-with-resources.
+**Limitações:** sem `var` em lambda ou parâmetro de `catch` (locais, `for`,
+`for-each` e recursos de try-with-resources são suportados).
 
 ## 10.9. Text blocks e anotações com argumentos
 

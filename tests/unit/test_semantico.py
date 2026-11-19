@@ -392,6 +392,111 @@ def test_try_catch_finally_and_get_message() -> None:
     )
 
 
+def test_try_with_resources_and_multi_catch() -> None:
+    analyze(
+        """
+        class Recurso implements AutoCloseable {
+            public void close() { System.out.println("fecha"); }
+        }
+        class OutroRecurso implements Closeable {
+            public void close() { }
+        }
+        class Main {
+            public static void main(String[] args) {
+                try (Recurso r = new Recurso();
+                     var s = new OutroRecurso()) {
+                    System.out.println(r);
+                    System.out.println(s);
+                } catch (RuntimeException | Error e) {
+                    System.out.println(e.getMessage());
+                } finally {
+                    System.out.println("fim");
+                }
+            }
+        }
+        """
+    )
+
+
+def test_resource_must_be_closeable() -> None:
+    with pytest.raises(TranspileError, match="AutoCloseable"):
+        analyze(
+            """
+            class Main {
+                public static void main(String[] args) {
+                    try (String s = "x") { }
+                }
+            }
+            """
+        )
+
+
+def test_resource_requires_initializer() -> None:
+    with pytest.raises(TranspileError, match="inicializador"):
+        analyze(
+            """
+            class Recurso implements AutoCloseable {
+                public void close() { }
+            }
+            class Main {
+                public static void main(String[] args) {
+                    try (Recurso r) { }
+                }
+            }
+            """
+        )
+
+
+def test_autocloseable_requires_close_method() -> None:
+    with pytest.raises(TranspileError, match="close"):
+        analyze(
+            """
+            class Recurso implements AutoCloseable {
+            }
+            class Main {
+                public static void main(String[] args) { }
+            }
+            """
+        )
+
+
+def test_multi_catch_rejects_related_types() -> None:
+    with pytest.raises(TranspileError, match="relacionados"):
+        analyze(
+            """
+            class Main {
+                public static void main(String[] args) {
+                    try {
+                        System.out.println("x");
+                    } catch (RuntimeException | IllegalStateException e) {
+                        System.out.println(e.getMessage());
+                    }
+                }
+            }
+            """
+        )
+
+
+def test_resource_is_out_of_scope_in_catch() -> None:
+    with pytest.raises(TranspileError, match="r"):
+        analyze(
+            """
+            class Recurso implements AutoCloseable {
+                public void close() { }
+            }
+            class Main {
+                public static void main(String[] args) {
+                    try (Recurso r = new Recurso()) {
+                        System.out.println(r);
+                    } catch (RuntimeException e) {
+                        System.out.println(r);
+                    }
+                }
+            }
+            """
+        )
+
+
 def test_custom_exception_extends_runtime_exception() -> None:
     analyze(
         """

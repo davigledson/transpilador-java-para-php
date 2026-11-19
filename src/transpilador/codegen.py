@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from . import ast
 from .erros import TranspileError
-from .semantico import EXCEPTION_TYPES, ClassInfo
+from .semantico import BUILTIN_INTERFACES, EXCEPTION_TYPES, ClassInfo
 
 
 TYPE_MAP = {
@@ -24,7 +24,10 @@ TYPE_MAP = {
     "Stream": "JStream",
     "Class": "JClass",
     "Throwable": "\\Throwable",
+    "Error": "\\Error",
     "Exception": "\\Exception",
+    "AutoCloseable": "\\AutoCloseable",
+    "Closeable": "\\Closeable",
     "RuntimeException": "\\RuntimeException",
     "IllegalArgumentException": "\\InvalidArgumentException",
     "IllegalStateException": "\\RuntimeException",
@@ -227,6 +230,7 @@ class PhpEmitter:
             or t.name in self.classes
             or t.name in LIBRARY_TYPES
             or t.name in EXCEPTION_TYPES
+            or t.name in BUILTIN_INTERFACES
         )
         return f"?{base}" if is_ref else base
 
@@ -236,6 +240,8 @@ class PhpEmitter:
     def php_class_name(self, name: str) -> str:
         if name in EXCEPTION_TYPES:
             return self.php_exception_name(name)
+        if name in BUILTIN_INTERFACES:
+            return "\\" + name
         info = self.classes.get(name)
         if info is None or not info.package:
             return name
@@ -486,22 +492,7 @@ class PhpEmitter:
             self.indent -= 1
             self.line(f"}} while ({self.emit_expr(node.cond)});")
         elif isinstance(node, ast.Try):
-            self.line("try {")
-            self.indent += 1
-            self.emit_block_contents(node.body)
-            self.indent -= 1
-            for catch in node.catches:
-                catch_type = self.php_class_name(catch.type.name)
-                self.line(f"}} catch ({catch_type} ${catch.name}) {{")
-                self.indent += 1
-                self.emit_block_contents(catch.body)
-                self.indent -= 1
-            if node.finally_ is not None:
-                self.line("} finally {")
-                self.indent += 1
-                self.emit_block_contents(node.finally_)
-                self.indent -= 1
-            self.line("}")
+            self.emit_try(node)
         elif isinstance(node, ast.Throw):
             self.line(f"throw {self.emit_expr(node.value)};")
         elif isinstance(node, ast.Switch):
@@ -557,6 +548,77 @@ class PhpEmitter:
             self.line("continue;")
         else:
             self.error("comando não suportado pelo gerador", node)
+
+    def emit_try(self, node: ast.Try) -> None:
+        has_handlers = bool(node.catches) or node.finally_ is not None
+
+        if node.resources and not has_handlers:
+            self.emit_resource_nesting(node.resources, node.body)
+            return
+
+        self.line("try {")
+        self.indent += 1
+        if node.resources:
+            self.emit_resource_nesting(node.resources, node.body)
+        else:
+            self.emit_block_contents(node.body)
+        self.indent -= 1
+
+        for catch in node.catches:
+            catch_types = " | ".join(
+                self.php_class_name(catch_type.name)
+                for catch_type in catch.types
+            )
+            self.line(f"}} catch ({catch_types} ${catch.name}) {{")
+            self.indent += 1
+            self.emit_block_contents(catch.body)
+            self.indent -= 1
+        if node.finally_ is not None:
+            self.line("} finally {")
+            self.indent += 1
+            self.emit_block_contents(node.finally_)
+            self.indent -= 1
+        self.line("}")
+
+    def emit_resource_nesting(
+        self,
+        resources: list[ast.LocalVarDecl],
+        body: ast.Block,
+    ) -> None:
+        first = resources[0]
+        self.line(f"${first.name} = {self.emit_expr(first.init)};")
+
+        for resource in resources[1:]:
+            self.line("try {")
+            self.indent += 1
+            self.line(f"${resource.name} = {self.emit_expr(resource.init)};")
+
+        self.line("try {")
+        self.indent += 1
+        self.emit_block_contents(body)
+        self.indent -= 1
+
+        self.line("} finally {")
+        self.indent += 1
+        self.emit_close(resources[-1])
+        self.indent -= 1
+
+        for resource in reversed(resources[:-1]):
+            self.line("}")
+            self.indent -= 1
+            self.line("} finally {")
+            self.indent += 1
+            self.emit_close(resource)
+            self.indent -= 1
+        self.line("}")
+
+    def emit_close(self, resource: ast.LocalVarDecl) -> None:
+        name = f"${resource.name}"
+        self.line(f"if ({name} !== null) {{")
+        self.indent += 1
+        self.line(f"{name}->close();")
+        self.indent -= 1
+        self.line("}")
 
     def emit_nested_body(self, node: ast.Node) -> None:
         if isinstance(node, ast.Block):
