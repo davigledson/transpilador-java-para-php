@@ -1,0 +1,671 @@
+"""Analisador sintático (PLY/yacc) para um subconjunto de Java."""
+
+from __future__ import annotations
+
+import ply.yacc as yacc
+
+from . import ast
+from .erros import TranspileError
+from .lexer import JavaLexer
+
+
+class JavaParser:
+    tokens = JavaLexer.tokens
+    start = "program"
+
+    # Usado para o "else" pendente e para o menos unário.
+    precedence = (
+        ("right", "ELSE"),
+        ("right", "UMINUS"),
+    )
+
+    # ------------------------------------------------------------------
+    # Auxiliares
+    # ------------------------------------------------------------------
+
+    def __init__(self) -> None:
+        self.parser = yacc.yacc(
+            module=self,
+            start=self.start,
+            debug=False,
+            write_tables=False,
+        )
+
+    def _pos(self, p, index: int = 1) -> tuple[int, int]:
+        line = p.lineno(index) or 0
+        lexpos = p.lexpos(index)
+        col = 0
+        if lexpos is not None and getattr(p, "lexer", None) is not None:
+            data = p.lexer.lexdata
+            last_nl = data.rfind("\n", 0, lexpos)
+            col = lexpos - last_nl
+        return line, col
+
+    def _column(self, tok) -> int:
+        data = tok.lexer.lexdata
+        last_nl = data.rfind("\n", 0, tok.lexpos)
+        return tok.lexpos - last_nl
+
+    def parse(self, source: str, lexer: JavaLexer) -> ast.Program:
+        lexer.lexer.lineno = 1
+        result = self.parser.parse(source, lexer=lexer.lexer, tracking=True)
+        if result is None:
+            raise TranspileError("não foi possível gerar a AST")
+        return result
+
+    # ------------------------------------------------------------------
+    # Estrutura geral
+    # ------------------------------------------------------------------
+
+    def p_program(self, p):
+        "program : package_opt imports_opt class_list"
+        line, col = self._pos(p, 3)
+        p[0] = ast.Program(classes=p[3], line=line, col=col)
+
+    def p_package_opt(self, p):
+        "package_opt : PACKAGE dotted_name SEMI"
+        p[0] = p[2]
+
+    def p_package_empty(self, p):
+        "package_opt : empty"
+        p[0] = None
+
+    def p_imports_opt_many(self, p):
+        "imports_opt : imports_opt IMPORT dotted_name SEMI"
+        p[0] = p[1] + [p[3]]
+
+    def p_imports_opt_empty(self, p):
+        "imports_opt : empty"
+        p[0] = []
+
+    def p_dotted_name_one(self, p):
+        "dotted_name : dotted_part"
+        p[0] = p[1]
+
+    def p_dotted_name_many(self, p):
+        "dotted_name : dotted_name DOT dotted_part"
+        p[0] = p[1] + "." + p[3]
+
+    def p_dotted_part(self, p):
+        """dotted_part : ID
+                       | TYPEID"""
+        p[0] = p[1]
+
+    def p_class_list_many(self, p):
+        "class_list : class_list class_decl"
+        p[0] = p[1] + [p[2]]
+
+    def p_class_list_one(self, p):
+        "class_list : class_decl"
+        p[0] = [p[1]]
+
+    # ------------------------------------------------------------------
+    # Classes
+    # ------------------------------------------------------------------
+
+    def p_class_decl(self, p):
+        "class_decl : modifiers CLASS TYPEID extends_opt implements_opt LBRACE class_body RBRACE"
+        line, col = self._pos(p, 2)
+        p[0] = ast.ClassDecl(
+            name=p[3],
+            extends=p[4],
+            members=p[7],
+            implements=p[5],
+            modifiers=p[1],
+            line=line,
+            col=col,
+        )
+
+    def p_unsupported_interface(self, p):
+        "class_decl : modifiers INTERFACE TYPEID LBRACE class_body RBRACE"
+        line, col = self._pos(p, 2)
+        raise TranspileError("interfaces ainda não são suportadas nesta versão", line, col)
+
+    def p_unsupported_enum(self, p):
+        "class_decl : modifiers ENUM TYPEID LBRACE class_body RBRACE"
+        line, col = self._pos(p, 2)
+        raise TranspileError("enums ainda não são suportados nesta versão", line, col)
+
+    def p_extends_opt(self, p):
+        "extends_opt : EXTENDS class_ref"
+        p[0] = p[2]
+
+    def p_extends_empty(self, p):
+        "extends_opt : empty"
+        p[0] = None
+
+    def p_class_ref(self, p):
+        """class_ref : ID
+                     | TYPEID"""
+        p[0] = p[1]
+
+    def p_implements_opt(self, p):
+        "implements_opt : IMPLEMENTS name_list"
+        p[0] = p[2]
+
+    def p_implements_empty(self, p):
+        "implements_opt : empty"
+        p[0] = []
+
+    def p_name_list_many(self, p):
+        "name_list : name_list COMMA name_item"
+        p[0] = p[1] + [p[3]]
+
+    def p_name_list_one(self, p):
+        "name_list : name_item"
+        p[0] = [p[1]]
+
+    def p_name_item(self, p):
+        """name_item : ID
+                     | TYPEID"""
+        p[0] = p[1]
+
+    def p_modifiers_many(self, p):
+        "modifiers : modifiers modifier"
+        p[0] = p[1] | {p[2]}
+
+    def p_modifiers_empty(self, p):
+        "modifiers : empty"
+        p[0] = set()
+
+    def p_modifier(self, p):
+        """modifier : PUBLIC
+                    | PRIVATE
+                    | PROTECTED
+                    | STATIC
+                    | FINAL
+                    | ABSTRACT
+                    | annotation"""
+        p[0] = p[1]
+
+    def p_annotation(self, p):
+        "annotation : AT ID"
+        p[0] = "annotation"
+
+    def p_class_body_many(self, p):
+        "class_body : class_body member"
+        p[0] = p[1] + p[2]
+
+    def p_class_body_empty(self, p):
+        "class_body : empty"
+        p[0] = []
+
+    def p_member(self, p):
+        "member : modifiers member_rest"
+        nodes = p[2] if isinstance(p[2], list) else [p[2]]
+        for node in nodes:
+            node.modifiers = p[1]
+        p[0] = nodes
+
+    def p_member_rest_constructor(self, p):
+        "member_rest : TYPEID LPAREN params_opt RPAREN block"
+        line, col = self._pos(p, 1)
+        p[0] = ast.ConstructorDecl(
+            name=p[1],
+            params=p[3],
+            body=p[5],
+            line=line,
+            col=col,
+        )
+
+    def p_member_rest_typed(self, p):
+        "member_rest : type ID member_tail"
+        line, col = self._pos(p, 1)
+        kind, value, body = p[3]
+        if kind == "method":
+            p[0] = ast.MethodDecl(
+                name=p[2],
+                return_type=p[1],
+                params=value,
+                body=body,
+                line=line,
+                col=col,
+            )
+        else:
+            p[0] = ast.FieldDecl(
+                name=p[2],
+                type=p[1],
+                init=value,
+                line=line,
+                col=col,
+            )
+
+    def p_member_tail_method(self, p):
+        "member_tail : LPAREN params_opt RPAREN block"
+        p[0] = ("method", p[2], p[4])
+
+    def p_member_tail_field_init(self, p):
+        "member_tail : ASSIGN expr SEMI"
+        p[0] = ("field", p[2], None)
+
+    def p_member_tail_field(self, p):
+        "member_tail : SEMI"
+        p[0] = ("field", None, None)
+
+    # ------------------------------------------------------------------
+    # Parâmetros e tipos
+    # ------------------------------------------------------------------
+
+    def p_params_opt(self, p):
+        "params_opt : params"
+        p[0] = p[1]
+
+    def p_params_empty(self, p):
+        "params_opt : empty"
+        p[0] = []
+
+    def p_params_many(self, p):
+        "params : params COMMA param"
+        p[0] = p[1] + [p[3]]
+
+    def p_params_one(self, p):
+        "params : param"
+        p[0] = [p[1]]
+
+    def p_param(self, p):
+        "param : type ID"
+        line, col = self._pos(p, 2)
+        p[0] = ast.Param(name=p[2], type=p[1], line=line, col=col)
+
+    def p_type_basic(self, p):
+        """type : INT
+                | DOUBLE
+                | BOOLEAN
+                | CHAR
+                | STRING
+                | VOID
+                | LONG
+                | FLOAT
+                | BYTE
+                | SHORT"""
+        line, col = self._pos(p, 1)
+        p[0] = ast.JavaType(p[1], 0, line, col)
+
+    def p_type_class(self, p):
+        "type : TYPEID"
+        line, col = self._pos(p, 1)
+        p[0] = ast.JavaType(p[1], 0, line, col)
+
+    def p_type_array(self, p):
+        "type : type LBRACKET RBRACKET"
+        p[0] = ast.JavaType(p[1].name, p[1].dims + 1, p[1].line, p[1].col)
+
+    # ------------------------------------------------------------------
+    # Comandos
+    # ------------------------------------------------------------------
+
+    def p_stmt_block(self, p):
+        "stmt : block"
+        p[0] = p[1]
+
+    def p_block(self, p):
+        "block : LBRACE stmt_list RBRACE"
+        line, col = self._pos(p, 1)
+        p[0] = ast.Block(stmts=p[2], line=line, col=col)
+
+    def p_stmt_list_many(self, p):
+        "stmt_list : stmt_list stmt"
+        p[0] = p[1] + [p[2]]
+
+    def p_stmt_list_empty(self, p):
+        "stmt_list : empty"
+        p[0] = []
+
+    def p_stmt_if(self, p):
+        "stmt : IF LPAREN expr RPAREN stmt else_opt"
+        line, col = self._pos(p, 1)
+        p[0] = ast.If(cond=p[3], then=p[5], else_=p[6], line=line, col=col)
+
+    def p_else_opt(self, p):
+        "else_opt : ELSE stmt"
+        p[0] = p[2]
+
+    def p_else_empty(self, p):
+        "else_opt : empty"
+        p[0] = None
+
+    def p_stmt_while(self, p):
+        "stmt : WHILE LPAREN expr RPAREN stmt"
+        line, col = self._pos(p, 1)
+        p[0] = ast.While(cond=p[3], body=p[5], line=line, col=col)
+
+    def p_stmt_do_while(self, p):
+        "stmt : DO stmt WHILE LPAREN expr RPAREN SEMI"
+        line, col = self._pos(p, 1)
+        p[0] = ast.DoWhile(body=p[2], cond=p[5], line=line, col=col)
+
+    def p_stmt_for(self, p):
+        "stmt : FOR LPAREN for_header RPAREN stmt"
+        line, col = self._pos(p, 1)
+        kind = p[3][0]
+        if kind == "classic":
+            p[0] = ast.For(
+                init=p[3][1],
+                cond=p[3][2],
+                update=p[3][3],
+                body=p[5],
+                line=line,
+                col=col,
+            )
+        else:
+            p[0] = ast.ForEach(
+                type=p[3][1],
+                name=p[3][2],
+                iterable=p[3][3],
+                body=p[5],
+                line=line,
+                col=col,
+            )
+
+    def p_for_header_classic(self, p):
+        "for_header : for_init SEMI expr_opt SEMI for_update_opt"
+        p[0] = ("classic", p[1], p[3], p[5])
+
+    def p_for_header_each(self, p):
+        "for_header : type ID COLON expr"
+        p[0] = ("each", p[1], p[2], p[4])
+
+    def p_for_init_local(self, p):
+        "for_init : local_decl"
+        p[0] = p[1]
+
+    def p_for_init_expr(self, p):
+        "for_init : expr"
+        _line, _col = self._pos(p, 1)
+        p[0] = ast.ExprStmt(expr=p[1], line=_line, col=_col)
+
+    def p_for_init_empty(self, p):
+        "for_init : empty"
+        p[0] = None
+
+    def p_for_update_opt(self, p):
+        "for_update_opt : expr"
+        p[0] = p[1]
+
+    def p_for_update_empty(self, p):
+        "for_update_opt : empty"
+        p[0] = None
+
+    def p_stmt_return(self, p):
+        "stmt : RETURN expr_opt SEMI"
+        line, col = self._pos(p, 1)
+        p[0] = ast.Return(value=p[2], line=line, col=col)
+
+    def p_expr_opt(self, p):
+        "expr_opt : expr"
+        p[0] = p[1]
+
+    def p_expr_opt_empty(self, p):
+        "expr_opt : empty"
+        p[0] = None
+
+    def p_stmt_break(self, p):
+        "stmt : BREAK SEMI"
+        line, col = self._pos(p, 1)
+        p[0] = ast.Break(line=line, col=col)
+
+    def p_stmt_continue(self, p):
+        "stmt : CONTINUE SEMI"
+        line, col = self._pos(p, 1)
+        p[0] = ast.Continue(line=line, col=col)
+
+    def p_stmt_local(self, p):
+        "stmt : local_decl SEMI"
+        p[0] = p[1]
+
+    def p_stmt_expr(self, p):
+        "stmt : expr SEMI"
+        line, col = self._pos(p, 1)
+        p[0] = ast.ExprStmt(expr=p[1], line=line, col=col)
+
+    def p_stmt_empty(self, p):
+        "stmt : SEMI"
+        line, col = self._pos(p, 1)
+        p[0] = ast.Block(stmts=[], line=line, col=col)
+
+    def p_local_decl_init(self, p):
+        "local_decl : type ID ASSIGN expr"
+        line, col = self._pos(p, 2)
+        p[0] = ast.LocalVarDecl(name=p[2], type=p[1], init=p[4], line=line, col=col)
+
+    def p_local_decl(self, p):
+        "local_decl : type ID"
+        line, col = self._pos(p, 2)
+        p[0] = ast.LocalVarDecl(name=p[2], type=p[1], init=None, line=line, col=col)
+
+    # ------------------------------------------------------------------
+    # Expressões
+    # ------------------------------------------------------------------
+
+    def p_expr(self, p):
+        "expr : assignment"
+        p[0] = p[1]
+
+    def p_assignment_plain(self, p):
+        "assignment : ternary"
+        p[0] = p[1]
+
+    def p_assignment(self, p):
+        """assignment : ternary ASSIGN assignment
+                      | ternary PLUS_ASSIGN assignment
+                      | ternary MINUS_ASSIGN assignment
+                      | ternary TIMES_ASSIGN assignment
+                      | ternary DIV_ASSIGN assignment"""
+        line, col = self._pos(p, 1)
+        p[0] = ast.Assign(op=p[2], target=p[1], value=p[3], line=line, col=col)
+
+    def p_ternary_plain(self, p):
+        "ternary : or_expr"
+        p[0] = p[1]
+
+    def p_ternary(self, p):
+        "ternary : or_expr QUESTION expr COLON ternary"
+        line, col = self._pos(p, 1)
+        p[0] = ast.Ternary(cond=p[1], then=p[3], else_=p[5], line=line, col=col)
+
+    def p_or_expr_many(self, p):
+        "or_expr : or_expr OR and_expr"
+        line, col = self._pos(p, 1)
+        p[0] = ast.Binary(op="||", left=p[1], right=p[3], line=line, col=col)
+
+    def p_or_expr(self, p):
+        "or_expr : and_expr"
+        p[0] = p[1]
+
+    def p_and_expr_many(self, p):
+        "and_expr : and_expr AND equality"
+        line, col = self._pos(p, 1)
+        p[0] = ast.Binary(op="&&", left=p[1], right=p[3], line=line, col=col)
+
+    def p_and_expr(self, p):
+        "and_expr : equality"
+        p[0] = p[1]
+
+    def p_equality_many(self, p):
+        """equality : equality EQ relational
+                    | equality NE relational"""
+        line, col = self._pos(p, 1)
+        p[0] = ast.Binary(op=p[2], left=p[1], right=p[3], line=line, col=col)
+
+    def p_equality(self, p):
+        "equality : relational"
+        p[0] = p[1]
+
+    def p_relational_many(self, p):
+        """relational : relational LT additive
+                      | relational LE additive
+                      | relational GT additive
+                      | relational GE additive"""
+        line, col = self._pos(p, 1)
+        p[0] = ast.Binary(op=p[2], left=p[1], right=p[3], line=line, col=col)
+
+    def p_relational(self, p):
+        "relational : additive"
+        p[0] = p[1]
+
+    def p_additive_many(self, p):
+        """additive : additive PLUS multiplicative
+                    | additive MINUS multiplicative"""
+        line, col = self._pos(p, 1)
+        p[0] = ast.Binary(op=p[2], left=p[1], right=p[3], line=line, col=col)
+
+    def p_additive(self, p):
+        "additive : multiplicative"
+        p[0] = p[1]
+
+    def p_multiplicative_many(self, p):
+        """multiplicative : multiplicative TIMES unary
+                          | multiplicative DIV unary
+                          | multiplicative MOD unary"""
+        line, col = self._pos(p, 1)
+        p[0] = ast.Binary(op=p[2], left=p[1], right=p[3], line=line, col=col)
+
+    def p_multiplicative(self, p):
+        "multiplicative : unary"
+        p[0] = p[1]
+
+    def p_unary(self, p):
+        """unary : NOT unary
+                 | PLUS unary
+                 | INC unary
+                 | DEC unary"""
+        line, col = self._pos(p, 1)
+        p[0] = ast.Unary(op=p[1], operand=p[2], prefix=True, line=line, col=col)
+
+    def p_unary_minus(self, p):
+        "unary : MINUS unary %prec UMINUS"
+        line, col = self._pos(p, 1)
+        p[0] = ast.Unary(op="-", operand=p[2], prefix=True, line=line, col=col)
+
+    def p_unary_postfix(self, p):
+        "unary : postfix"
+        p[0] = p[1]
+
+    def p_postfix_field(self, p):
+        "postfix : postfix DOT ID"
+        line, col = self._pos(p, 1)
+        p[0] = ast.FieldAccess(target=p[1], name=p[3], line=line, col=col)
+
+    def p_postfix_call(self, p):
+        "postfix : postfix LPAREN args_opt RPAREN"
+        line, col = self._pos(p, 1)
+        p[0] = ast.Call(callee=p[1], args=p[3], line=line, col=col)
+
+    def p_postfix_index(self, p):
+        "postfix : postfix LBRACKET expr RBRACKET"
+        line, col = self._pos(p, 1)
+        p[0] = ast.ArrayAccess(array=p[1], index=p[3], line=line, col=col)
+
+    def p_postfix_inc(self, p):
+        "postfix : postfix INC"
+        line, col = self._pos(p, 1)
+        p[0] = ast.Unary(op="++", operand=p[1], prefix=False, line=line, col=col)
+
+    def p_postfix_dec(self, p):
+        "postfix : postfix DEC"
+        line, col = self._pos(p, 1)
+        p[0] = ast.Unary(op="--", operand=p[1], prefix=False, line=line, col=col)
+
+    def p_postfix_primary(self, p):
+        "postfix : primary"
+        p[0] = p[1]
+
+    def p_args_opt(self, p):
+        "args_opt : args"
+        p[0] = p[1]
+
+    def p_args_empty(self, p):
+        "args_opt : empty"
+        p[0] = []
+
+    def p_args_many(self, p):
+        "args : args COMMA expr"
+        p[0] = p[1] + [p[3]]
+
+    def p_args_one(self, p):
+        "args : expr"
+        p[0] = [p[1]]
+
+    def p_primary_int(self, p):
+        "primary : INT_LIT"
+        line, col = self._pos(p, 1)
+        p[0] = ast.Literal(value=p[1], kind="int", line=line, col=col)
+
+    def p_primary_double(self, p):
+        "primary : DOUBLE_LIT"
+        line, col = self._pos(p, 1)
+        p[0] = ast.Literal(value=p[1], kind="double", line=line, col=col)
+
+    def p_primary_string(self, p):
+        "primary : STRING_LIT"
+        line, col = self._pos(p, 1)
+        p[0] = ast.Literal(value=p[1], kind="string", line=line, col=col)
+
+    def p_primary_char(self, p):
+        "primary : CHAR_LIT"
+        line, col = self._pos(p, 1)
+        p[0] = ast.Literal(value=p[1], kind="char", line=line, col=col)
+
+    def p_primary_true(self, p):
+        "primary : TRUE"
+        line, col = self._pos(p, 1)
+        p[0] = ast.Literal(value=True, kind="boolean", line=line, col=col)
+
+    def p_primary_false(self, p):
+        "primary : FALSE"
+        line, col = self._pos(p, 1)
+        p[0] = ast.Literal(value=False, kind="boolean", line=line, col=col)
+
+    def p_primary_null(self, p):
+        "primary : NULL"
+        line, col = self._pos(p, 1)
+        p[0] = ast.Literal(value=None, kind="null", line=line, col=col)
+
+    def p_primary_this(self, p):
+        "primary : THIS"
+        line, col = self._pos(p, 1)
+        p[0] = ast.This(line=line, col=col)
+
+    def p_primary_new_object(self, p):
+        "primary : NEW class_ref LPAREN args_opt RPAREN"
+        line, col = self._pos(p, 2)
+        p[0] = ast.NewObject(class_name=p[2], args=p[4], line=line, col=col)
+
+    def p_primary_new_array(self, p):
+        "primary : NEW type LBRACKET expr RBRACKET"
+        line, col = self._pos(p, 2)
+        p[0] = ast.NewArray(
+            element_type=p[2],
+            size=p[4],
+            init=None,
+            line=line,
+            col=col,
+        )
+
+    def p_primary_group(self, p):
+        "primary : LPAREN expr RPAREN"
+        p[0] = p[2]
+
+    def p_primary_string_type(self, p):
+        "primary : STRING"
+        line, col = self._pos(p, 1)
+        p[0] = ast.Name(id="String", line=line, col=col)
+
+    def p_primary_id(self, p):
+        """primary : ID
+                   | TYPEID"""
+        line, col = self._pos(p, 1)
+        p[0] = ast.Name(id=p[1], line=line, col=col)
+
+    def p_empty(self, p):
+        "empty :"
+        p[0] = None
+
+    def p_error(self, p):
+        if p is None:
+            raise TranspileError("fim de arquivo inesperado")
+        raise TranspileError(
+            f"erro de sintaxe próximo de {p.value!r}",
+            p.lineno,
+            self._column(p),
+        )
