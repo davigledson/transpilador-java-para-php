@@ -995,6 +995,42 @@ class SemanticAnalyzer:
     # Comandos
     # ------------------------------------------------------------------
 
+    def _analyze_condition(self, node: ast.Expr) -> list[tuple[str, ast.JavaType]]:
+        if isinstance(node, ast.Binary) and node.op == "&&":
+            left_bindings = self._analyze_condition(node.left)
+            self._push_scope()
+            for name, binding_type in left_bindings:
+                self._declare(name, binding_type, node.left)
+            right_bindings = self._analyze_condition(node.right)
+            self._pop_scope()
+            return left_bindings + right_bindings
+
+        if isinstance(node, ast.Binary) and node.op == "||":
+            left = self.analyze_expr(node.left)
+            if not self._is_boolean(left):
+                self._error(
+                    f"condição do if deve ser boolean, mas é {left}",
+                    node.left,
+                )
+            right = self.analyze_expr(node.right)
+            if not self._is_boolean(right):
+                self._error(
+                    f"condição do if deve ser boolean, mas é {right}",
+                    node.right,
+                )
+            return []
+
+        if isinstance(node, ast.InstanceOf) and node.binding:
+            self.analyze_expr(node)
+            if not hasattr(node, "target_type"):
+                self._error("pattern instanceof sem tipo resolvido", node)
+            return [(node.binding, node.target_type)]
+
+        cond = self.analyze_expr(node)
+        if not self._is_boolean(cond):
+            self._error(f"condição deve ser boolean, mas é {cond}", node)
+        return []
+
     def _check_stmt(self, node: ast.Node) -> None:
         if isinstance(node, ast.Block):
             self._push_scope()
@@ -1027,19 +1063,23 @@ class SemanticAnalyzer:
         elif isinstance(node, ast.ExprStmt):
             self.analyze_expr(node.expr)
         elif isinstance(node, ast.If):
-            cond = self.analyze_expr(node.cond)
-            if not self._is_boolean(cond):
-                self._error(f"condição do if deve ser boolean, mas é {cond}", node.cond)
+            self._push_scope()
+            bindings = self._analyze_condition(node.cond)
+            for name, binding_type in bindings:
+                self._declare(name, binding_type, node.cond)
             self._check_stmt(node.then)
+            self._pop_scope()
             if node.else_ is not None:
                 self._check_stmt(node.else_)
         elif isinstance(node, ast.While):
-            cond = self.analyze_expr(node.cond)
-            if not self._is_boolean(cond):
-                self._error(f"condição do while deve ser boolean, mas é {cond}", node.cond)
+            self._push_scope()
+            bindings = self._analyze_condition(node.cond)
+            for name, binding_type in bindings:
+                self._declare(name, binding_type, node.cond)
             self.loop_depth += 1
             self._check_stmt(node.body)
             self.loop_depth -= 1
+            self._pop_scope()
         elif isinstance(node, ast.DoWhile):
             self.loop_depth += 1
             self._check_stmt(node.body)
@@ -1508,6 +1548,7 @@ class SemanticAnalyzer:
     def _analyze_instanceof(self, node: ast.InstanceOf) -> ast.JavaType:
         source = self.analyze_expr(node.expr)
         target = self._resolve_type(node.type, node)
+        node.target_type = target
 
         if target.dims > 0:
             if not (self._is_reference(source) or self._is_null(source)):

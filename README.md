@@ -27,7 +27,8 @@ de prometer Java inteiro.
   `forEach`, `removeIf`, `filter`, `map`, `collect(Collectors.toList())`,
   `count`, `anyMatch`/`allMatch`/`noneMatch`, `limit` e `sorted`.
 - Text blocks (`"""`) e anotações com argumentos (parseadas e ignoradas).
-- Casts primitivos/referência (`(int)`, `(char)`, `(Conta)`) e `instanceof`.
+- Casts primitivos/referência (`(int)`, `(char)`, `(Conta)`) e `instanceof`,
+  inclusive pattern binding (`obj instanceof Conta c`).
 - Class literals (`Conta.class`) com `getName`, `getSimpleName`, `isInstance` e `toString`.
 - `package`/`import` → `namespace`/`use` PHP no modo projeto.
 - `var` com inferência local e em `for`/`for-each`.
@@ -98,9 +99,9 @@ try (...) { }                  → try-with-resources ainda não é suportado
 catch (A | B e)                → multi-catch ainda não é suportado
 ```
 
-Recursos como records, sealed, pattern matching e try-with-resources
-ficam para fases futuras. `var` e `switch` arrow/expression já são
-suportados.
+Recursos como records, sealed, pattern matching em `switch` e
+try-with-resources ficam para fases futuras. `var`, `switch`
+arrow/expression e pattern `instanceof` já são suportados.
 
 ## Modo projeto (vários arquivos)
 
@@ -219,7 +220,7 @@ make demo   # diferencial só do Banco
 ```
 
 O teste diferencial compila o `.java`, executa, transpila, roda `php -l`,
-executa o PHP e compara a saída. Hoje: **27/27 casos**.
+executa o PHP e compara a saída. Hoje: **28/28 casos**.
 
 O CI em `.github/workflows/ci.yml` roda `make check` em cada push/PR com
 Python, PHP 8.3 e JDK 21.
@@ -341,8 +342,8 @@ Detalhes e a matriz completa estão em [`docs/escopo.md`](docs/escopo.md).
 - [x] Lexer/parser do subconjunto
 - [x] AST + análise semântica básica
 - [x] Codegen PHP + runtime
-- [x] 27 programas de exemplo passando no diff
-- [x] 103 testes unitários
+- [x] 28 programas de exemplo passando no diff
+- [x] 107 testes unitários
 - [x] Herança simples (`extends`, `super`, override, polimorfismo)
 - [x] Interfaces e classes abstratas
 - [x] `ArrayList`/`List` + `Scanner`
@@ -360,4 +361,5 @@ Detalhes e a matriz completa estão em [`docs/escopo.md`](docs/escopo.md).
 - [x] Source level Java 21 + diagnósticos de recursos não suportados
 - [x] `var` (locals, `for` e `for-each`)
 - [x] `switch` arrow/expression + `yield`
+- [x] Pattern `instanceof` (`obj instanceof Conta c`)
 - [ ] Relatório final e slides

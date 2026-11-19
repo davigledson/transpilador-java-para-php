@@ -13,7 +13,7 @@ limitação.
 | Java 21 | source level 21 para o subconjunto; diagnósticos claros para record/sealed/etc. |
 | `var` | inferência em variáveis locais, `for` clássico e `for-each` |
 | `switch` 21 | statement arrow, switch expression e `yield` |
-| Casts/instanceof | casts primitivos e de referência; `instanceof` para classes/interfaces/String/arrays |
+| Casts/instanceof | casts primitivos e de referência; `instanceof` para classes/interfaces/String/arrays, com pattern binding |
 | Class literals | `X.class`, `int.class`, `String.class`; `getName`, `getSimpleName`, `isInstance`, `toString` |
 | Herança | `extends` simples, `super(...)`, `super.metodo(...)`, override, polimorfismo |
 | Interfaces/abstratas | `interface`, `implements` múltiplo, classes abstratas, métodos abstratos, checagem de implementação |
@@ -72,7 +72,7 @@ limitação.
 - Genéricos: só listas, mapas e sets; sem tipos boxed (`Integer` etc.).
 - Classes internas e anônimas.
 - Reflection, threads, `synchronized`, `volatile`.
-- Records, sealed classes, pattern matching.
+- Records, sealed classes e pattern matching em `switch`.
 - `BigDecimal`, `BigInteger`, datas.
 - `>>>` e operadores bit a bit.
 - Preservação de comentários no código gerado.
@@ -88,6 +88,6 @@ limitação.
 
 ## Métricas atuais
 
-- Exemplos no diff: **27/27**
-- Testes unitários: **103**
+- Exemplos no diff: **28/28**
+- Testes unitários: **107**
 - Linhas aproximadas do transpilador: ver `wc -l src/transpilador/*.py`

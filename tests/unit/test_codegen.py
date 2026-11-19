@@ -343,6 +343,25 @@ def test_cast_and_instanceof_codegen() -> None:
     assert "JCast::to($o, A::class)" in php
 
 
+def test_pattern_instanceof_codegen() -> None:
+    php = generate(
+        """
+        class A {
+            void m(A o) {
+                if (o instanceof A a) {
+                    System.out.println(a);
+                }
+                if (o instanceof A b && b != null) {
+                    System.out.println(b);
+                }
+            }
+        }
+        """
+    )
+    assert "(($a = $o) instanceof A)" in php
+    assert "(($b = $o) instanceof A)" in php
+
+
 def test_class_literal_codegen() -> None:
     php = generate(
         """

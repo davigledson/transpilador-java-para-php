@@ -401,6 +401,7 @@ class Cast(Expr):
 class InstanceOf(Expr):
     expr: Expr
     type: JavaType
+    binding: str | None = None
     line: int = 0
     col: int = 0
 

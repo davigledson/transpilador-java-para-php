@@ -959,12 +959,22 @@ class PhpEmitter:
     def emit_instanceof(self, node: ast.InstanceOf) -> str:
         target = node.type
         expr = self.emit_expr(node.expr)
+        binding = getattr(node, "binding", None)
+        variable = f"${binding}" if binding else None
+
         if target.dims > 0:
+            if variable:
+                return f"(({variable} = {expr}) !== null && is_array({variable}))"
             return f"is_array({expr})"
         if target.name == "String":
+            if variable:
+                return f"(({variable} = {expr}) !== null && is_string({variable}))"
             return f"is_string({expr})"
         if target.name in self.classes or target.name in EXCEPTION_TYPES:
-            return f"({expr} instanceof {self.php_class_ref(target.name)})"
+            class_ref = self.php_class_ref(target.name)
+            if variable:
+                return f"(({variable} = {expr}) instanceof {class_ref})"
+            return f"({expr} instanceof {class_ref})"
         self.error(f"instanceof não suportado no gerador: {target}", node)
         return ""
 

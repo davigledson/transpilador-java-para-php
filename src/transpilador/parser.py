@@ -815,6 +815,17 @@ class JavaParser:
         line, col = self._pos(p, 1)
         p[0] = ast.InstanceOf(expr=p[1], type=p[3], line=line, col=col)
 
+    def p_relational_instanceof_binding(self, p):
+        "relational : relational INSTANCEOF type ID"
+        line, col = self._pos(p, 1)
+        p[0] = ast.InstanceOf(
+            expr=p[1],
+            type=p[3],
+            binding=p[4],
+            line=line,
+            col=col,
+        )
+
     def p_relational(self, p):
         "relational : additive"
         p[0] = p[1]

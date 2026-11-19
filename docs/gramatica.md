@@ -90,7 +90,7 @@ or_expr        := and_expr { "||" and_expr }
 and_expr       := equality { "&&" equality }
 equality       := relational { ( "==" | "!=" ) relational }
 relational     := additive { ( "<" | "<=" | ">" | ">=" ) additive }
-                | relational "instanceof" type
+                | relational "instanceof" type [ ID ]           (* pattern binding *)
 additive       := multiplicative { ( "+" | "-" ) multiplicative }
 multiplicative := unary { ( "*" | "/" | "%" ) unary }
 unary          := ( "!" | "-" | "+" | "++" | "--" ) unary

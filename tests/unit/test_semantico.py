@@ -689,6 +689,49 @@ def test_instanceof_requires_reference() -> None:
         )
 
 
+def test_pattern_instanceof_binding_scope() -> None:
+    analyze(
+        """
+        class A {
+            int valor;
+        }
+        class Main {
+            public static void main(String[] args) {
+                A a = new A();
+                if (a instanceof A x) {
+                    System.out.println(x.valor);
+                }
+                if (a instanceof A y && y.valor > 0) {
+                    System.out.println(y.valor);
+                }
+                while (a instanceof A z) {
+                    break;
+                }
+            }
+        }
+        """
+    )
+
+
+def test_pattern_instanceof_binding_outside_scope_is_error() -> None:
+    with pytest.raises(TranspileError, match="x"):
+        analyze(
+            """
+            class A { }
+            class Main {
+                public static void main(String[] args) {
+                    A a = new A();
+                    if (a instanceof A x) {
+                        System.out.println(x);
+                    } else {
+                        System.out.println(x);
+                    }
+                }
+            }
+            """
+        )
+
+
 def test_class_literals_and_methods() -> None:
     analyze(
         """

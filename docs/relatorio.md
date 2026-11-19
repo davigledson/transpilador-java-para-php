@@ -15,9 +15,10 @@ diferenciais executando o mesmo programa em Java e em PHP.
 
 O subconjunto cobre classes, herança, interfaces, classes abstratas, enums,
 exceções, `switch`, `ArrayList`/`HashMap`/`HashSet`, `Scanner`, lambdas,
-streams, casts, `instanceof`, class literals, text blocks, anotações com
-argumentos e `package`/`import` mapeados para namespace/use do PHP. O
-resultado é validado por 103 testes unitários, 27 programas no teste
+streams, casts, `instanceof` (com pattern binding), class literals, text
+blocks, anotações com argumentos e `package`/`import` mapeados para
+namespace/use do PHP. O resultado é validado por 107 testes unitários,
+28 programas no teste
 diferencial Java×PHP e um teste de projeto multi-arquivo, todos executados
 por `make check` e pelo CI.
 
@@ -124,7 +125,7 @@ As lacunas foram tratadas com quatro estratégias:
 | Coleções | `ArrayList`/`List`, `HashMap`/`Map`, `HashSet`/`Set` |
 | Funcional | lambdas de expressão, `filter`, `map`, `forEach`, `removeIf`, `collect(Collectors.toList())`, `count`, `anyMatch` etc. |
 | Tipos | `int`, `double`, `boolean`, `char`, `String`, arrays, `void`; `long`/`float`/`byte`/`short` normalizados |
-| Sintaxe moderna | text blocks, anotações com argumentos (ignoradas), casts, `instanceof`, class literals |
+| Sintaxe moderna | text blocks, anotações com argumentos (ignoradas), casts, `instanceof` com pattern, class literals |
 | Projeto | pasta recursiva, `package` → namespace, `import` → `use`, autoloader, `run.php` |
 
 ### 3.2 Fora do escopo
@@ -259,6 +260,7 @@ AST tipada
 | `(int) 'a'` | `ord` |
 | `(Conta) x` | `JCast::to(...)` |
 | `x instanceof Conta` | `instanceof` |
+| `x instanceof Conta c` | `($c = $x) instanceof Conta` |
 | `Conta.class` | `JClass::of(Conta::class)` |
 | `new ArrayList<>()` | `new JArrayList()` |
 | `stream().filter(...)` | `->filter(fn($x) => ...)` |
@@ -322,8 +324,8 @@ make check
 ### 6.2 Números atuais
 
 ```text
-103 testes unitários
-27/27 casos no diff Java×PHP
+107 testes unitários
+28/28 casos no diff Java×PHP
 [projeto] OK
 php -l em todo o runtime
 ```
@@ -334,7 +336,7 @@ O corpus cobre: `Hello`, `Calculadora`, `FizzBuzz`, `Vetores`, `Textos`,
 `Utilitarios`, `Conta`, `Banco`, `HerancaConta`, `Animais`, `Formas`,
 `BancoLista`, `Leitura`, `MapaBanco`, `Conjunto`, `Excecoes`, `Escolhas`,
 `Enums`, `Lambdas`, `BancoMenu`, `Moderno`, `Casts`, `Classes`, `Estoque`,
-`Funcionarios`, `Variaveis` e `SwitchModerno`.
+`Funcionarios`, `Variaveis`, `SwitchModerno` e `PatternInstanceof`.
 
 O modo projeto usa `tests/project/src`, com `Main` em `package app`,
 `Conta`/`ContaCorrente` em `package model` e a exceção em `package error`.

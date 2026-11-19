@@ -243,6 +243,17 @@ checagem de tipo.
 **Limitações:** sem unboxing/casts entre primitivos e wrappers; casts de
 array só verificam `array` em runtime.
 
+## 10.10.1. Pattern `instanceof`
+
+**Decisão:** aceitar `expr instanceof Tipo nome` e disponibilizar `nome` no
+ramo verdadeiro do `if`/`while` e à direita de `&&`.
+**Motivo:** é a forma idiomática de testar e converter em Java moderno.
+**Consequência:** o codegen atribui a variável dentro da própria condição
+(`($c = $obj) instanceof Conta`); a análise semântica declara o binding só no
+escopo em que ele é garantido.
+**Limitações:** sem binding em `||`, em condições negadas ou fora do ramo
+verdadeiro; sem pattern matching em `switch`.
+
 ## 10.11. Class literals
 
 **Decisão:** mapear `X.class`, `int.class` e `String.class` para

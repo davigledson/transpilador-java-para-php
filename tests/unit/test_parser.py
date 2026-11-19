@@ -396,6 +396,31 @@ def test_unsupported_java21_diagnostics(source: str, message: str) -> None:
         parse(source)
 
 
+def test_pattern_instanceof_syntax() -> None:
+    program = parse(
+        """
+        class A {
+            void m(A o) {
+                if (o instanceof A a) {
+                    System.out.println(a);
+                }
+                if (o instanceof A b && b != null) {
+                    System.out.println(b);
+                }
+            }
+        }
+        """
+    )
+    stmts = program.classes[0].members[0].body.stmts
+    first = stmts[0].cond
+    assert isinstance(first, ast.InstanceOf)
+    assert first.binding == "a"
+    second = stmts[1].cond
+    assert isinstance(second, ast.Binary)
+    assert isinstance(second.left, ast.InstanceOf)
+    assert second.left.binding == "b"
+
+
 def test_syntax_error_has_position() -> None:
     with pytest.raises(TranspileError) as exc:
         parse("class A { void m( { }")
