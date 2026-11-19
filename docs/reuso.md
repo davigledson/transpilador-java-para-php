@@ -30,7 +30,7 @@ documento registra o que foi usado e sob qual licença.
 - `src/transpilador/semantico.py`: tabela de símbolos, escopos, tipos e
   resolução de chamadas.
 - `src/transpilador/codegen.py`: emissor PHP e regras de lowering.
-- `runtime/php/`: `JString`, `JSystem` e `bootstrap`.
+- `runtime/php/`: `JString`, `JSystem`, `JArrayList`, `JHashMap`, `JHashSet`, `JScanner` e `bootstrap`.
 - `scripts/diff_test.py`: harness diferencial.
 - Exemplos e testes.
 

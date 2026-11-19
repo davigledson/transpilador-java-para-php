@@ -25,13 +25,14 @@
 - Runtime PHP: `JString`, `JSystem`.
 
 ## 5. Testes e resultados
-- Testes unitários: 20.
-- Teste diferencial: 8/8 exemplos.
+- Testes unitários: 55.
+- Teste diferencial: 16/16 exemplos.
 - Tabela de casos e saídas.
 - Limitações observadas.
 
 ## 6. Limitações e trabalhos futuros
-- Herança/interfaces, coleções, exceções, lambdas.
+- Lambdas, enums e `switch`.
+- Herança, interfaces, coleções, `Scanner` e exceções já funcionam.
 - Melhor tratamento de `char`/Unicode, bounds check, formatação de double.
 - Otimizações e IR explícito.
 

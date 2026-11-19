@@ -10,6 +10,15 @@ de prometer Java inteiro.
 
 - Classes, campos, métodos, construtores, `this`, `new`, `static`,
   `public/private/protected` e `static final`.
+- Herança simples: `extends`, `super(...)`, `super.metodo(...)`, override,
+  polimorfismo e arrays de supertipo.
+- Interfaces (`interface`/`implements`), classes abstratas e métodos abstratos,
+  com checagem de implementação nas classes concretas.
+- `ArrayList`/`List` com genéricos apagados (`ArrayList<String>`,
+  `new ArrayList<>()`) e `Scanner` para `stdin`.
+- `HashMap`/`Map` e `HashSet`/`Set` com genéricos apagados.
+- Exceções: `try/catch/finally`, `throw`, `throws` (ignorado) e exceções
+  embutidas ou customizadas (`extends RuntimeException`).
 - Tipos `int`, `double`, `boolean`, `char`, `String`, arrays (`T[]`) e `void`.
 - `if/else`, `while`, `do/while`, `for`, `for-each`, `return`,
   `break/continue` e blocos.
@@ -70,7 +79,7 @@ make demo   # diferencial só do Banco
 ```
 
 O teste diferencial compila o `.java`, executa, transpila, roda `php -l`,
-executa o PHP e compara a saída. Hoje: **8/8 casos**.
+executa o PHP e compara a saída. Hoje: **16/16 casos**.
 
 ## Exemplo
 
@@ -148,12 +157,19 @@ docs/               escopo, gramática, decisões, reuso e relatório
 
 ## Limitações atuais
 
-Ainda **não** suportado: herança, interfaces, enums, classes abstratas,
-genéricos, lambdas/streams, exceções, `switch`, sobrecarga de métodos,
-pacotes/namespaces (são lidos e ignorados), classes internas, coleções
-(`ArrayList`/`HashMap`), `Scanner`, `StringBuilder`, threads e reflection.
+Ainda **não** suportado: enums, lambdas/streams, `switch`,
+sobrecarga de métodos, pacotes/namespaces (são lidos e ignorados), classes
+internas, `LinkedHashMap`/`TreeMap`/`entrySet`, `StringBuilder`, threads e
+reflection. Genéricos existem só em `ArrayList`/`List`, `HashMap`/`Map` e
+`HashSet`/`Set`, e são apagados na geração.
+Exceções checadas não são validadas: `throws` é lido e ignorado; não há
+multi-catch nem try-with-resources.
 Arrays multidimensionais também ficam para depois (`T[][]` no tipo, mas
-`new T[n][m]` e inicializadores `{...}` não).
+`new T[n][m]` e inicializadores `{...}` não). Interfaces aceitam só métodos
+abstratos: sem `default`, sem constantes e sem métodos `static`/`private`.
+A herança é simples: uma superclasse, sem `this(...)` e sem ocultação de
+campos. O `Scanner` cobre `next`, `nextInt`, `nextDouble`, `nextLine`,
+`hasNext*` e `close`.
 
 Detalhes e a matriz completa estão em [`docs/escopo.md`](docs/escopo.md).
 
@@ -162,8 +178,12 @@ Detalhes e a matriz completa estão em [`docs/escopo.md`](docs/escopo.md).
 - [x] Lexer/parser do subconjunto
 - [x] AST + análise semântica básica
 - [x] Codegen PHP + runtime
-- [x] 7 programas de exemplo passando no diff
-- [x] 20 testes unitários
-- [ ] Herança/interfaces (próxima etapa)
-- [ ] Coleções e `Scanner`
+- [x] 16 programas de exemplo passando no diff
+- [x] 55 testes unitários
+- [x] Herança simples (`extends`, `super`, override, polimorfismo)
+- [x] Interfaces e classes abstratas
+- [x] `ArrayList`/`List` + `Scanner`
+- [x] `HashMap`/`HashSet`
+- [x] Exceções (`try/catch/finally`, `throw`, customizadas)
+- [ ] Lambdas, enums, `switch`
 - [ ] Relatório final e slides
