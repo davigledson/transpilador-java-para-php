@@ -1,0 +1,25 @@
+PYTHON ?= .venv/bin/python
+PIP ?= .venv/bin/pip
+FILE ?= examples/Banco.java
+OUT ?= build/demo
+
+.PHONY: install test diff demo transpile clean
+
+install:
+	python3 -m venv .venv
+	$(PIP) install -e '.[dev]'
+
+test:
+	$(PYTHON) -m pytest -q
+
+diff:
+	$(PYTHON) scripts/diff_test.py
+
+demo:
+	$(PYTHON) scripts/diff_test.py $(FILE)
+
+transpile:
+	$(PYTHON) -m transpilador $(FILE) -o $(OUT)
+
+clean:
+	rm -rf build .pytest_cache
