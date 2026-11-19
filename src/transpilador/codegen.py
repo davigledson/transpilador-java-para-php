@@ -1,0 +1,585 @@
+"""Gerador de código PHP a partir da AST tipada."""
+
+from __future__ import annotations
+
+from . import ast
+from .erros import TranspileError
+from .semantico import ClassInfo
+
+
+TYPE_MAP = {
+    "int": "int",
+    "double": "float",
+    "boolean": "bool",
+    "char": "string",
+    "String": "string",
+    "void": "void",
+}
+
+
+class PhpEmitter:
+    def __init__(self, classes: dict[str, ClassInfo]) -> None:
+        self.classes = classes
+        self.lines: list[str] = []
+        self.indent = 0
+        self.current_class: str | None = None
+
+    # ------------------------------------------------------------------
+    # API pública
+    # ------------------------------------------------------------------
+
+    def emit(self, program: ast.Program) -> str:
+        self.lines = []
+        self.line("<?php")
+        self.line("declare(strict_types=1);")
+        self.line()
+        self.line("require_once __DIR__ . '/runtime/bootstrap.php';")
+        self.line()
+
+        for cls in program.classes:
+            self.emit_class(cls)
+
+        main_class = next(
+            (cls for cls in program.classes if self.classes[cls.name].has_main),
+            None,
+        )
+        if main_class is not None:
+            self.emit_entrypoint(main_class)
+
+        return "\n".join(self.lines).rstrip() + "\n"
+
+    # ------------------------------------------------------------------
+    # Saída e indentação
+    # ------------------------------------------------------------------
+
+    def line(self, text: str = "") -> None:
+        self.lines.append(("    " * self.indent + text) if text else "")
+
+    def error(self, message: str, node: object) -> None:
+        raise TranspileError(
+            message,
+            getattr(node, "line", 0),
+            getattr(node, "col", 0),
+        )
+
+    # ------------------------------------------------------------------
+    # Tipos e valores padrão
+    # ------------------------------------------------------------------
+
+    def php_type(self, t: ast.JavaType, nullable: bool = True) -> str:
+        if t.dims > 0:
+            base = "array"
+        elif t.name in TYPE_MAP:
+            base = TYPE_MAP[t.name]
+        elif t.name == "null":
+            base = "mixed"
+        else:
+            base = t.name
+
+        if not nullable or base in {"void", "mixed"}:
+            return base
+
+        is_ref = t.dims > 0 or t.name == "String" or t.name in self.classes
+        return f"?{base}" if is_ref else base
+
+    def default_value(self, t: ast.JavaType) -> str:
+        if t.dims > 0:
+            return "null"
+        if t.name == "int":
+            return "0"
+        if t.name == "double":
+            return "0.0"
+        if t.name == "boolean":
+            return "false"
+        if t.name == "char":
+            return '"\\0"'
+        return "null"
+
+    # ------------------------------------------------------------------
+    # Classes
+    # ------------------------------------------------------------------
+
+    def emit_class(self, cls: ast.ClassDecl) -> None:
+        self.current_class = cls.name
+        self.line(f"class {cls.name}")
+        self.line("{")
+        self.indent += 1
+
+        for member in cls.members:
+            if isinstance(member, ast.FieldDecl):
+                self.emit_field(member)
+            elif isinstance(member, ast.ConstructorDecl):
+                self.emit_constructor(member)
+            elif isinstance(member, ast.MethodDecl):
+                self.emit_method(member)
+
+        self.indent -= 1
+        self.line("}")
+        self.line()
+        self.current_class = None
+
+    def emit_field(self, field: ast.FieldDecl) -> None:
+        if "private" in field.modifiers:
+            visibility = "private"
+        elif "protected" in field.modifiers:
+            visibility = "protected"
+        else:
+            visibility = "public"
+
+        static = "static " if "static" in field.modifiers else ""
+        type_str = self.php_type(field.type)
+        init = self.emit_expr(field.init) if field.init is not None else self.default_value(field.type)
+        self.line(f"{visibility} {static}{type_str} ${field.name} = {init};")
+
+    def emit_constructor(self, ctor: ast.ConstructorDecl) -> None:
+        if "private" in ctor.modifiers:
+            visibility = "private"
+        elif "protected" in ctor.modifiers:
+            visibility = "protected"
+        else:
+            visibility = "public"
+
+        params = ", ".join(
+            f"{self.php_type(param.type)} ${param.name}" for param in ctor.params
+        )
+        self.line(f"{visibility} function __construct({params})")
+        self.line("{")
+        self.indent += 1
+        self.emit_block_contents(ctor.body)
+        self.indent -= 1
+        self.line("}")
+
+    def emit_method(self, method: ast.MethodDecl) -> None:
+        if "private" in method.modifiers:
+            visibility = "private"
+        elif "protected" in method.modifiers:
+            visibility = "protected"
+        else:
+            visibility = "public"
+
+        static = "static " if "static" in method.modifiers else ""
+        params = ", ".join(
+            f"{self.php_type(param.type)} ${param.name}" for param in method.params
+        )
+        return_type = self.php_type(method.return_type, nullable=True)
+        self.line(f"{visibility} {static}function {method.name}({params}): {return_type}")
+        self.line("{")
+        self.indent += 1
+        self.emit_block_contents(method.body)
+        self.indent -= 1
+        self.line("}")
+
+        # Facilita JString::valueOf/println de objetos.
+        if method.name == "toString" and not method.params and method.return_type == ast.STRING:
+            self.line()
+            self.line(f"{visibility} function __toString(): string")
+            self.line("{")
+            self.indent += 1
+            self.line("return $this->toString();")
+            self.indent -= 1
+            self.line("}")
+        self.line()
+
+    def emit_entrypoint(self, cls: ast.ClassDecl) -> None:
+        self.line(
+            "if (PHP_SAPI === 'cli' && isset($_SERVER['SCRIPT_FILENAME']) "
+            "&& realpath($_SERVER['SCRIPT_FILENAME']) === __FILE__) {"
+        )
+        self.indent += 1
+        self.line(f"{cls.name}::main(array_slice($argv, 1));")
+        self.indent -= 1
+        self.line("}")
+
+    # ------------------------------------------------------------------
+    # Comandos
+    # ------------------------------------------------------------------
+
+    def emit_block_contents(self, block: ast.Block) -> None:
+        for stmt in block.stmts:
+            self.emit_stmt(stmt)
+
+    def emit_stmt(self, node: ast.Node) -> None:
+        if isinstance(node, ast.Block):
+            self.line("{")
+            self.indent += 1
+            self.emit_block_contents(node)
+            self.indent -= 1
+            self.line("}")
+        elif isinstance(node, ast.LocalVarDecl):
+            init = self.emit_expr(node.init) if node.init is not None else "null"
+            self.line(f"${node.name} = {init};")
+        elif isinstance(node, ast.ExprStmt):
+            self.line(f"{self.emit_expr(node.expr)};")
+        elif isinstance(node, ast.If):
+            self.line(f"if ({self.emit_expr(node.cond)}) {{")
+            self.indent += 1
+            self.emit_nested_body(node.then)
+            self.indent -= 1
+            if node.else_ is not None:
+                self.line("} else {")
+                self.indent += 1
+                self.emit_nested_body(node.else_)
+                self.indent -= 1
+            self.line("}")
+        elif isinstance(node, ast.While):
+            self.line(f"while ({self.emit_expr(node.cond)}) {{")
+            self.indent += 1
+            self.emit_nested_body(node.body)
+            self.indent -= 1
+            self.line("}")
+        elif isinstance(node, ast.DoWhile):
+            self.line("do {")
+            self.indent += 1
+            self.emit_nested_body(node.body)
+            self.indent -= 1
+            self.line(f"}} while ({self.emit_expr(node.cond)});")
+        elif isinstance(node, ast.For):
+            init = self.emit_for_init(node.init)
+            cond = self.emit_expr(node.cond) if node.cond is not None else "true"
+            update = self.emit_expr(node.update) if node.update is not None else ""
+            self.line(f"for ({init}; {cond}; {update}) {{")
+            self.indent += 1
+            self.emit_nested_body(node.body)
+            self.indent -= 1
+            self.line("}")
+        elif isinstance(node, ast.ForEach):
+            iterable = self.emit_expr(node.iterable)
+            self.line(f"foreach ({iterable} as ${node.name}) {{")
+            self.indent += 1
+            self.emit_nested_body(node.body)
+            self.indent -= 1
+            self.line("}")
+        elif isinstance(node, ast.Return):
+            if node.value is None:
+                self.line("return;")
+            else:
+                self.line(f"return {self.emit_expr(node.value)};")
+        elif isinstance(node, ast.Break):
+            self.line("break;")
+        elif isinstance(node, ast.Continue):
+            self.line("continue;")
+        else:
+            self.error("comando não suportado pelo gerador", node)
+
+    def emit_nested_body(self, node: ast.Node) -> None:
+        if isinstance(node, ast.Block):
+            self.emit_block_contents(node)
+        else:
+            self.emit_stmt(node)
+
+    def emit_for_init(self, node: ast.Node | None) -> str:
+        if node is None:
+            return ""
+        if isinstance(node, ast.LocalVarDecl):
+            init = self.emit_expr(node.init) if node.init is not None else "null"
+            return f"${node.name} = {init}"
+        if isinstance(node, ast.ExprStmt):
+            return self.emit_expr(node.expr)
+        return ""
+
+    # ------------------------------------------------------------------
+    # Expressões
+    # ------------------------------------------------------------------
+
+    def emit_expr(self, node: ast.Expr) -> str:
+        if isinstance(node, ast.Literal):
+            return self.emit_literal(node)
+        if isinstance(node, ast.Name):
+            return self.emit_name(node)
+        if isinstance(node, ast.This):
+            return "$this"
+        if isinstance(node, ast.FieldAccess):
+            return self.emit_field_access(node)
+        if isinstance(node, ast.Call):
+            return self.emit_call(node)
+        if isinstance(node, ast.NewObject):
+            args = ", ".join(self.emit_expr(arg) for arg in node.args)
+            return f"new {node.class_name}({args})"
+        if isinstance(node, ast.NewArray):
+            if node.init is not None:
+                items = ", ".join(self.emit_expr(item) for item in node.init)
+                return f"[{items}]"
+            if node.size is None:
+                self.error("array sem tamanho nem inicializador", node)
+            size = self.emit_expr(node.size)
+            return f"array_fill(0, {size}, {self.default_value(node.element_type)})"
+        if isinstance(node, ast.ArrayAccess):
+            array = self.emit_expr(node.array)
+            index = self.emit_expr(node.index)
+            return f"{self.wrap_member_target(array)}[{index}]"
+        if isinstance(node, ast.Binary):
+            return self.emit_binary(node)
+        if isinstance(node, ast.Assign):
+            return self.emit_assign(node)
+        if isinstance(node, ast.Unary):
+            return self.emit_unary(node)
+        if isinstance(node, ast.Ternary):
+            cond = self.emit_expr(node.cond)
+            then = self.emit_expr(node.then)
+            otherwise = self.emit_expr(node.else_)
+            return f"({cond} ? {then} : {otherwise})"
+        if isinstance(node, ast.Cast):
+            return f"(({self.php_type(node.type, nullable=False)}) {self.emit_expr(node.expr)})"
+        if isinstance(node, ast.InstanceOf):
+            return f"({self.emit_expr(node.expr)} instanceof {node.type.name})"
+        self.error("expressão não suportada pelo gerador", node)
+        return ""
+
+    def emit_literal(self, node: ast.Literal) -> str:
+        if node.kind == "int":
+            return str(node.value)
+        if node.kind == "double":
+            value = float(node.value)
+            if value != value:
+                return "NAN"
+            if value == float("inf"):
+                return "INF"
+            if value == float("-inf"):
+                return "-INF"
+            text = repr(value)
+            if "e" not in text and "E" not in text and "." not in text:
+                text += ".0"
+            return text
+        if node.kind == "boolean":
+            return "true" if node.value else "false"
+        if node.kind == "null":
+            return "null"
+        if node.kind in {"string", "char"}:
+            return self.php_string(str(node.value))
+        self.error("literal não suportado", node)
+        return "null"
+
+    def emit_name(self, node: ast.Name) -> str:
+        binding = getattr(node, "binding", None)
+        if binding is None:
+            return f"${node.id}"
+        kind = binding[0]
+        if kind == "local":
+            return f"${node.id}"
+        if kind == "class":
+            return node.id
+        if kind == "field":
+            _kind, owner, name, is_static = binding
+            if is_static:
+                owner_ref = "self" if owner == self.current_class else owner
+                return f"{owner_ref}::${name}"
+            return f"$this->{name}"
+        return f"${node.id}"
+
+    def emit_field_access(self, node: ast.FieldAccess) -> str:
+        if getattr(node, "is_length", False):
+            return f"count({self.emit_expr(node.target)})"
+        if getattr(node, "php_constant", None):
+            return node.php_constant
+        if getattr(node, "is_static_field", False):
+            owner = getattr(node, "owner_class", None)
+            owner_ref = "self" if owner == self.current_class else owner
+            return f"{owner_ref}::${node.name}"
+        target = self.emit_expr(node.target)
+        return f"{self.wrap_member_target(target)}->{node.name}"
+
+    def emit_call(self, node: ast.Call) -> str:
+        kind = getattr(node, "call_kind", None)
+        args = ", ".join(self.emit_expr(arg) for arg in node.args)
+        method = getattr(node, "method_name", "")
+        callee = node.callee
+
+        if kind == "system_out":
+            return f"JSystem::{method}({args})"
+        if kind == "system_exit":
+            return f"exit({args})"
+        if kind == "string_valueof":
+            return f"JString::valueOf({args})"
+        if kind == "integer_parseint":
+            return f"(int) ({args})"
+        if kind == "integer_tostring":
+            return f"(string) ({args})"
+        if kind == "double_parsedouble":
+            return f"(float) ({args})"
+        if kind == "double_tostring":
+            return f"JString::valueOf({args})"
+        if kind == "string_method":
+            return self.emit_string_method(node, method, args)
+        if kind == "math":
+            if method == "random":
+                return "(mt_rand() / mt_getrandmax())"
+            if method == "round":
+                return f"(int) round({args})"
+            if method in {"abs", "sqrt", "floor", "ceil", "min", "max"}:
+                return f"{method}({args})"
+            if method == "pow":
+                return f"pow({args})"
+            self.error(f"Math.{method} não suportado no gerador", node)
+        if kind == "static":
+            owner = getattr(node, "owner_class", None)
+            return f"{owner}::{method}({args})"
+        if kind == "instance":
+            target = self.emit_expr(callee.target)
+            return f"{self.wrap_member_target(target)}->{method}({args})"
+        if kind == "self_static":
+            return f"self::{method}({args})"
+        if kind == "self_instance":
+            return f"$this->{method}({args})"
+
+        self.error("chamada sem resolução semântica", node)
+        return ""
+
+    def emit_string_method(self, node: ast.Call, method: str, args: str) -> str:
+        target = self.emit_expr(node.callee.target)
+        if method == "length":
+            return f"strlen({target})"
+        if method == "charAt":
+            return f"JString::charAt({target}, {args})"
+        if method == "substring":
+            return f"JString::substring({target}, {args})"
+        if method == "equals":
+            return f"({target} === {args})"
+        if method == "equalsIgnoreCase":
+            return f"(strcasecmp({target}, {args}) === 0)"
+        if method == "toUpperCase":
+            return f"strtoupper({target})"
+        if method == "toLowerCase":
+            return f"strtolower({target})"
+        if method == "trim":
+            return f"trim({target})"
+        if method == "indexOf":
+            return f"JString::indexOf({target}, {args})"
+        if method == "isEmpty":
+            return f"({target} === '')"
+        if method == "contains":
+            return f"str_contains({target}, {args})"
+        if method == "startsWith":
+            return f"str_starts_with({target}, {args})"
+        if method == "endsWith":
+            return f"str_ends_with({target}, {args})"
+        if method == "replace":
+            first, second = self.split_args(args)
+            return f"str_replace({first}, {second}, {target})"
+        if method == "split":
+            return f"JString::split({target}, {args})"
+        if method == "toString":
+            return target
+        if method == "compareTo":
+            return f"strcmp({target}, {args})"
+        self.error(f"método String.{method} não suportado no gerador", node)
+        return ""
+
+    def split_args(self, args: str) -> tuple[str, str]:
+        depth = 0
+        in_string = False
+        quote = ""
+        escaped = False
+        for i, char in enumerate(args):
+            if in_string:
+                if escaped:
+                    escaped = False
+                elif char == "\\":
+                    escaped = True
+                elif char == quote:
+                    in_string = False
+                continue
+            if char in {'"', "'"}:
+                in_string = True
+                quote = char
+            elif char in "([{":
+                depth += 1
+            elif char in ")]}":
+                depth -= 1
+            elif char == "," and depth == 0:
+                return args[:i].strip(), args[i + 1 :].strip()
+        return args.strip(), ""
+
+    def emit_binary(self, node: ast.Binary) -> str:
+        left = self.emit_expr(node.left)
+        right = self.emit_expr(node.right)
+        left_type = getattr(node.left, "inferred_type", None)
+        right_type = getattr(node.right, "inferred_type", None)
+        result_type = getattr(node, "inferred_type", None)
+
+        if node.op == "+" and result_type is not None and result_type.name == "String" and result_type.dims == 0:
+            return f"JString::concat({left}, {right})"
+
+        left_num = self.emit_numeric_operand(node.left, left)
+        right_num = self.emit_numeric_operand(node.right, right)
+
+        if node.op == "/":
+            if (
+                left_type is not None
+                and right_type is not None
+                and left_type.dims == 0
+                and right_type.dims == 0
+                and left_type.name in {"int", "char"}
+                and right_type.name in {"int", "char"}
+            ):
+                return f"intdiv({left_num}, {right_num})"
+            return f"({left_num} / {right_num})"
+
+        if node.op == "%":
+            if (
+                left_type is not None
+                and right_type is not None
+                and left_type.dims == 0
+                and right_type.dims == 0
+                and (left_type.name == "double" or right_type.name == "double")
+            ):
+                return f"fmod({left_num}, {right_num})"
+            return f"({left_num} % {right_num})"
+
+        if node.op in {"==", "!="}:
+            php_op = "===" if node.op == "==" else "!=="
+            if left_type is not None and right_type is not None:
+                if self.is_numeric_type(left_type) and self.is_numeric_type(right_type):
+                    php_op = "==" if node.op == "==" else "!="
+                elif left_type.name == "boolean" and right_type.name == "boolean":
+                    php_op = "===" if node.op == "==" else "!=="
+            return f"({left} {php_op} {right})"
+
+        return f"({left_num} {node.op} {right_num})"
+
+    def emit_assign(self, node: ast.Assign) -> str:
+        target = self.emit_expr(node.target)
+        value = self.emit_expr(node.value)
+        target_type = getattr(node.target, "inferred_type", None)
+        if node.op == "+=" and target_type is not None and target_type.name == "String":
+            return f"{target} = JString::concat({target}, {value})"
+        return f"{target} {node.op} {value}"
+
+    def emit_unary(self, node: ast.Unary) -> str:
+        operand = self.emit_expr(node.operand)
+        operand_type = getattr(node.operand, "inferred_type", None)
+        if node.op in {"-", "+"} and operand_type is not None and operand_type.name == "char":
+            operand = f"ord({operand})"
+        if node.prefix:
+            return f"{node.op}{operand}"
+        return f"{operand}{node.op}"
+
+    def emit_numeric_operand(self, expr: ast.Expr, text: str) -> str:
+        t = getattr(expr, "inferred_type", None)
+        if t is not None and t.dims == 0 and t.name == "char":
+            return f"ord({text})"
+        return text
+
+    def is_numeric_type(self, t: ast.JavaType) -> bool:
+        return t.dims == 0 and t.name in {"int", "double", "char"}
+
+    def wrap_member_target(self, text: str) -> str:
+        # $obj->x, $a[$i], $this->m() já são expressões válidas para ->.
+        if text.startswith("$"):
+            return text
+        return f"({text})"
+
+    # ------------------------------------------------------------------
+    # Strings PHP
+    # ------------------------------------------------------------------
+
+    def php_string(self, value: str) -> str:
+        out = (
+            value.replace("\\", "\\\\")
+            .replace('"', '\\"')
+            .replace("$", "\\$")
+            .replace("\n", "\\n")
+            .replace("\r", "\\r")
+            .replace("\t", "\\t")
+            .replace("\0", "\\0")
+        )
+        return f'"{out}"'
