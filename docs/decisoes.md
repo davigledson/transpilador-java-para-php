@@ -132,8 +132,19 @@ fallthrough e `break`) para `int`, `char` e `String`.
 **Consequência:** o gerador avalia a expressão uma vez em `$__switchN` e usa
 `switch (true)` com comparações `===`, preservando a semântica estrita do
 Java para `String`/`char`.
-**Limitações:** sem `switch`-expression/arrow, sem labels e sem `continue`
-dentro do `switch`.
+**Limitações:** sem labels, `continue` dentro do `switch` e pattern matching
+em `switch`.
+
+## 10.15. `switch` Java 21
+
+**Decisão:** suportar `case ... ->`, `switch` expression e `yield`.
+**Motivo:** são as formas modernas das mesmas construções de `switch` e
+aparecem em código Java 21.
+**Consequência:** statement arrow vira `if/else if`; switch expression usa
+uma variável temporária e `switch (true)`; `yield` atribui ao resultado e
+quebra o switch. `default` é obrigatório nesta versão.
+**Limitações:** sem pattern matching em `switch`, labels ou `continue`
+dentro do switch.
 
 ## 10.6. Enums simples
 

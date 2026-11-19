@@ -72,6 +72,7 @@ class PhpEmitter:
         self.switch_counter = 0
         self.current_package: str | None = None
         self.current_imports: list[str] = []
+        self.switch_result_vars: list[str] = []
 
     # ------------------------------------------------------------------
     # API pública
@@ -504,23 +505,31 @@ class PhpEmitter:
         elif isinstance(node, ast.Throw):
             self.line(f"throw {self.emit_expr(node.value)};")
         elif isinstance(node, ast.Switch):
-            temp = f"$__switch{self.switch_counter}"
-            self.switch_counter += 1
-            self.line(f"{temp} = {self.emit_expr(node.expr)};")
-            self.line("switch (true) {")
-            self.indent += 1
-            for case in node.cases:
-                if case.value is None:
-                    self.line("default:")
-                else:
-                    value = self.emit_expr(case.value)
-                    self.line(f"case ({temp} === {value}):")
+            if any(case.arrow for case in node.cases):
+                self.emit_arrow_switch_statement(node)
+            else:
+                temp = f"$__switch{self.switch_counter}"
+                self.switch_counter += 1
+                self.line(f"{temp} = {self.emit_expr(node.expr)};")
+                self.line("switch (true) {")
                 self.indent += 1
-                for stmt in case.stmts:
-                    self.emit_stmt(stmt)
+                for case in node.cases:
+                    if case.value is None:
+                        self.line("default:")
+                    else:
+                        value = self.emit_expr(case.value)
+                        self.line(f"case ({temp} === {value}):")
+                    self.indent += 1
+                    for stmt in case.stmts:
+                        self.emit_stmt(stmt)
+                    self.indent -= 1
                 self.indent -= 1
-            self.indent -= 1
-            self.line("}")
+                self.line("}")
+        elif isinstance(node, ast.Yield):
+            if not self.switch_result_vars:
+                self.error("yield fora de switch expression no gerador", node)
+            self.line(f"{self.switch_result_vars[-1]} = {self.emit_expr(node.value)};")
+            self.line("break;")
         elif isinstance(node, ast.For):
             init = self.emit_for_init(node.init)
             cond = self.emit_expr(node.cond) if node.cond is not None else "true"
@@ -554,6 +563,80 @@ class PhpEmitter:
             self.emit_block_contents(node)
         else:
             self.emit_stmt(node)
+
+    def emit_arrow_switch_statement(self, node: ast.Switch) -> None:
+        temp = f"$__switch{self.switch_counter}"
+        self.switch_counter += 1
+        self.line(f"{temp} = {self.emit_expr(node.expr)};")
+
+        value_cases = [case for case in node.cases if case.value is not None]
+        default_case = next((case for case in node.cases if case.value is None), None)
+
+        for index, case in enumerate(value_cases):
+            value = self.emit_expr(case.value)
+            prefix = "if" if index == 0 else "} else if"
+            self.line(f"{prefix} ({temp} === {value}) {{")
+            self.indent += 1
+            self.emit_arrow_body(case.arrow_body)
+            self.indent -= 1
+
+        if default_case is not None:
+            if value_cases:
+                self.line("} else {")
+                self.indent += 1
+                self.emit_arrow_body(default_case.arrow_body)
+                self.indent -= 1
+                self.line("}")
+            else:
+                self.emit_arrow_body(default_case.arrow_body)
+        elif value_cases:
+            self.line("}")
+
+    def emit_arrow_body(self, body: ast.Node | None) -> None:
+        if isinstance(body, ast.Block):
+            self.emit_stmt(body)
+        elif isinstance(body, ast.Expr):
+            self.line(f"{self.emit_expr(body)};")
+        elif isinstance(body, ast.Throw):
+            self.emit_stmt(body)
+        else:
+            self.error("corpo de case arrow não suportado no gerador", body)
+
+    def emit_switch_expression(self, node: ast.SwitchExpression) -> str:
+        temp = f"$__switch{self.switch_counter}"
+        self.switch_counter += 1
+        result = f"$__switchResult{self.switch_counter}"
+        self.switch_counter += 1
+
+        self.line(f"{temp} = {self.emit_expr(node.expr)};")
+        self.line(f"{result} = null;")
+        self.line("switch (true) {")
+        self.indent += 1
+        for case in node.cases:
+            if case.value is None:
+                self.line("default:")
+            else:
+                value = self.emit_expr(case.value)
+                self.line(f"case ({temp} === {value}):")
+            self.indent += 1
+            self.switch_result_vars.append(result)
+            if case.arrow:
+                body = case.arrow_body
+                if isinstance(body, ast.Expr):
+                    self.line(f"{result} = {self.emit_expr(body)};")
+                elif isinstance(body, (ast.Block, ast.Throw)):
+                    self.emit_stmt(body)
+                else:
+                    self.error("case arrow inválido no switch expression", case)
+            else:
+                for stmt in case.stmts:
+                    self.emit_stmt(stmt)
+            self.switch_result_vars.pop()
+            self.line("break;")
+            self.indent -= 1
+        self.indent -= 1
+        self.line("}")
+        return result
 
     def emit_for_init(self, node: ast.Node | None) -> str:
         if node is None:
@@ -619,6 +702,8 @@ class PhpEmitter:
             then = self.emit_expr(node.then)
             otherwise = self.emit_expr(node.else_)
             return f"({cond} ? {then} : {otherwise})"
+        if isinstance(node, ast.SwitchExpression):
+            return self.emit_switch_expression(node)
         if isinstance(node, ast.ClassLiteral):
             target = node.type
             if target.dims > 0:

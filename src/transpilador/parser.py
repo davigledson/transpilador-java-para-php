@@ -576,11 +576,7 @@ class JavaParser:
     def p_stmt_yield(self, p):
         "stmt : YIELD expr SEMI"
         line, col = self._pos(p, 1)
-        raise TranspileError(
-            "yield ainda não é suportado",
-            line,
-            col,
-        )
+        p[0] = ast.Yield(value=p[2], line=line, col=col)
 
     def p_stmt_switch(self, p):
         "stmt : SWITCH LPAREN expr RPAREN LBRACE switch_body RBRACE"
@@ -606,22 +602,39 @@ class JavaParser:
         p[0] = ast.SwitchCase(value=None, stmts=p[3], line=line, col=col)
 
     def p_switch_clause_case_arrow(self, p):
-        "switch_clause : CASE expr ARROW stmt"
+        "switch_clause : CASE expr ARROW arrow_body"
         line, col = self._pos(p, 1)
-        raise TranspileError(
-            "switch arrow (case ... ->) ainda não é suportado",
-            line,
-            col,
+        p[0] = ast.SwitchCase(
+            value=p[2],
+            arrow=True,
+            arrow_body=p[4],
+            line=line,
+            col=col,
         )
 
     def p_switch_clause_default_arrow(self, p):
-        "switch_clause : DEFAULT ARROW stmt"
+        "switch_clause : DEFAULT ARROW arrow_body"
         line, col = self._pos(p, 1)
-        raise TranspileError(
-            "switch arrow (default ->) ainda não é suportado",
-            line,
-            col,
+        p[0] = ast.SwitchCase(
+            value=None,
+            arrow=True,
+            arrow_body=p[3],
+            line=line,
+            col=col,
         )
+
+    def p_arrow_body_expr(self, p):
+        "arrow_body : expr SEMI"
+        p[0] = p[1]
+
+    def p_arrow_body_block(self, p):
+        "arrow_body : block"
+        p[0] = p[1]
+
+    def p_arrow_body_throw(self, p):
+        "arrow_body : THROW expr SEMI"
+        line, col = self._pos(p, 1)
+        p[0] = ast.Throw(value=p[2], line=line, col=col)
 
     def p_stmt_for(self, p):
         "stmt : FOR LPAREN for_header RPAREN stmt"
@@ -1084,14 +1097,10 @@ class JavaParser:
                      | SHORT"""
         p[0] = p[1]
 
-    def p_primary_switch(self, p):
-        "primary : SWITCH"
+    def p_primary_switch_expression(self, p):
+        "primary : SWITCH LPAREN expr RPAREN LBRACE switch_body RBRACE"
         line, col = self._pos(p, 1)
-        raise TranspileError(
-            "switch expression ainda não é suportado",
-            line,
-            col,
-        )
+        p[0] = ast.SwitchExpression(expr=p[3], cases=p[6], line=line, col=col)
 
     def p_primary_id(self, p):
         "primary : ID"

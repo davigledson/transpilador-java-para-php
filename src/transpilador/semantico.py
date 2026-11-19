@@ -115,6 +115,8 @@ class SemanticAnalyzer:
         self.current_return_type: ast.JavaType | None = None
         self.loop_depth = 0
         self.switch_depth = 0
+        self.switch_expr_depth = 0
+        self.yield_types_stack: list[list[ast.JavaType]] = []
         self.in_constructor = False
 
         self.scopes: list[dict[str, ast.JavaType]] = []
@@ -1067,45 +1069,14 @@ class SemanticAnalyzer:
                     f"throw espera uma exceção, mas recebeu {value_type}",
                     node.value,
                 )
+        elif isinstance(node, ast.Yield):
+            if self.switch_expr_depth == 0 or not self.yield_types_stack:
+                self._error("yield só pode ser usado dentro de switch expression", node)
+            value_type = self.analyze_expr(node.value)
+            self.yield_types_stack[-1].append(value_type)
+            node.inferred_type = value_type
         elif isinstance(node, ast.Switch):
-            switch_type = self.analyze_expr(node.expr)
-            is_enum = self._is_enum_type(switch_type)
-            if not (
-                self._is_integral(switch_type)
-                or (switch_type.dims == 0 and switch_type.name == "String")
-                or is_enum
-            ):
-                self._error(
-                    f"switch espera int, char, String ou enum, mas recebeu {switch_type}",
-                    node.expr,
-                )
-            seen_default = False
-            self.switch_depth += 1
-            for case in node.cases:
-                if case.value is None:
-                    if seen_default:
-                        self._error("switch com mais de um default", case)
-                    seen_default = True
-                elif is_enum and isinstance(case.value, ast.Name):
-                    enum_info = self.classes[switch_type.name]
-                    if case.value.id not in enum_info.enum_constants:
-                        self._error(
-                            f"'{case.value.id}' não é constante do enum "
-                            f"{switch_type.name}",
-                            case.value,
-                        )
-                    case.value.enum_owner = switch_type.name
-                    case.value.inferred_type = switch_type
-                else:
-                    value_type = self.analyze_expr(case.value)
-                    if not self._compatible(switch_type, value_type):
-                        self._error(
-                            f"case incompatível com switch {switch_type}: {value_type}",
-                            case.value,
-                        )
-                for stmt in case.stmts:
-                    self._check_stmt(stmt)
-            self.switch_depth -= 1
+            self._check_switch_statement(node)
         elif isinstance(node, ast.For):
             self._push_scope()
             if node.init is not None:
@@ -1188,6 +1159,135 @@ class SemanticAnalyzer:
     # ------------------------------------------------------------------
     # Expressões
     # ------------------------------------------------------------------
+
+    def _switch_type(self, node: ast.Switch | ast.SwitchExpression) -> tuple[ast.JavaType, bool]:
+        switch_type = self.analyze_expr(node.expr)
+        is_enum = self._is_enum_type(switch_type)
+        if not (
+            self._is_integral(switch_type)
+            or (switch_type.dims == 0 and switch_type.name == "String")
+            or is_enum
+        ):
+            self._error(
+                f"switch espera int, char, String ou enum, mas recebeu {switch_type}",
+                node.expr,
+            )
+        return switch_type, is_enum
+
+    def _check_switch_values(
+        self,
+        node: ast.Switch | ast.SwitchExpression,
+        switch_type: ast.JavaType,
+        is_enum: bool,
+    ) -> tuple[bool, bool, bool]:
+        seen_default = False
+        has_arrow = False
+        has_classic = False
+
+        for case in node.cases:
+            has_arrow = has_arrow or case.arrow
+            has_classic = has_classic or not case.arrow
+            if case.value is None:
+                if seen_default:
+                    self._error("switch com mais de um default", case)
+                seen_default = True
+            elif is_enum and isinstance(case.value, ast.Name):
+                enum_info = self.classes[switch_type.name]
+                if case.value.id not in enum_info.enum_constants:
+                    self._error(
+                        f"'{case.value.id}' não é constante do enum "
+                        f"{switch_type.name}",
+                        case.value,
+                    )
+                case.value.enum_owner = switch_type.name
+                case.value.inferred_type = switch_type
+            else:
+                value_type = self.analyze_expr(case.value)
+                if not self._compatible(switch_type, value_type):
+                    self._error(
+                        f"case incompatível com switch {switch_type}: {value_type}",
+                        case.value,
+                    )
+
+        if has_arrow and has_classic:
+            self._error(
+                "não misture case clássico (:) com case arrow (->) no mesmo switch",
+                node,
+            )
+        return seen_default, has_arrow, has_classic
+
+    def _check_arrow_body(self, body: ast.Node | None, node: object) -> None:
+        if body is None:
+            self._error("case arrow sem corpo", node)
+        if isinstance(body, ast.Block):
+            self._check_stmt(body)
+        elif isinstance(body, ast.Throw):
+            self._check_stmt(body)
+        elif isinstance(body, ast.Expr):
+            self.analyze_expr(body)
+        else:
+            self._error("corpo de case arrow não suportado", body)
+
+    def _check_switch_statement(self, node: ast.Switch) -> None:
+        switch_type, is_enum = self._switch_type(node)
+        _seen_default, has_arrow, _has_classic = self._check_switch_values(
+            node, switch_type, is_enum
+        )
+
+        self.switch_depth += 1
+        for case in node.cases:
+            if has_arrow:
+                self._check_arrow_body(case.arrow_body, case)
+            else:
+                for stmt in case.stmts:
+                    self._check_stmt(stmt)
+        self.switch_depth -= 1
+
+    def _analyze_switch_expression(self, node: ast.SwitchExpression) -> ast.JavaType:
+        switch_type, is_enum = self._switch_type(node)
+        seen_default, _has_arrow, _has_classic = self._check_switch_values(
+            node, switch_type, is_enum
+        )
+        if not seen_default:
+            self._error(
+                "switch expression exige default nesta versão",
+                node,
+            )
+
+        self.switch_expr_depth += 1
+        self.yield_types_stack.append([])
+        try:
+            for case in node.cases:
+                if case.arrow:
+                    body = case.arrow_body
+                    if isinstance(body, ast.Block):
+                        self._check_stmt(body)
+                    elif isinstance(body, ast.Throw):
+                        self._check_stmt(body)
+                    elif isinstance(body, ast.Expr):
+                        result_type = self.analyze_expr(body)
+                        self.yield_types_stack[-1].append(result_type)
+                    else:
+                        self._error("corpo de case arrow inválido", case)
+                else:
+                    for stmt in case.stmts:
+                        self._check_stmt(stmt)
+            result_types = self.yield_types_stack[-1]
+        finally:
+            self.yield_types_stack.pop()
+            self.switch_expr_depth -= 1
+
+        if not result_types:
+            self._error("switch expression não produz valor", node)
+        result = result_types[0]
+        for other in result_types[1:]:
+            result = self._common_type(result, other, node)
+        return result
+
+
+        result = self._analyze_expr(node)
+        node.inferred_type = result
+        return result
 
     def analyze_expr(self, node: ast.Expr) -> ast.JavaType:
         result = self._analyze_expr(node)
@@ -1340,6 +1440,9 @@ class SemanticAnalyzer:
             target = self._resolve_type(node.type, node, allow_void=True)
             node.target_type = target
             return ast.JavaType("Class", args=(target,))
+
+        if isinstance(node, ast.SwitchExpression):
+            return self._analyze_switch_expression(node)
 
         if isinstance(node, ast.Cast):
             return self._analyze_cast(node)

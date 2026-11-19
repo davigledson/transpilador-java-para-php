@@ -10,14 +10,15 @@ limitação.
 |---|---|
 | Estrutura | classes, campos, métodos, construtores, `this`, `new`, `static`, `final`, `public/private/protected` |
 | Sintaxe moderna | text blocks (`"""`) e anotações com argumentos (parseadas e ignoradas) |
-| Java 21 | source level 21 para o subconjunto; diagnósticos claros para record/sealed/switch expression/etc. |
+| Java 21 | source level 21 para o subconjunto; diagnósticos claros para record/sealed/etc. |
 | `var` | inferência em variáveis locais, `for` clássico e `for-each` |
+| `switch` 21 | statement arrow, switch expression e `yield` |
 | Casts/instanceof | casts primitivos e de referência; `instanceof` para classes/interfaces/String/arrays |
 | Class literals | `X.class`, `int.class`, `String.class`; `getName`, `getSimpleName`, `isInstance`, `toString` |
 | Herança | `extends` simples, `super(...)`, `super.metodo(...)`, override, polimorfismo |
 | Interfaces/abstratas | `interface`, `implements` múltiplo, classes abstratas, métodos abstratos, checagem de implementação |
 | Exceções | `try/catch/finally`, `throw`, `throws` (lido e ignorado), `RuntimeException`/`Exception` e exceções customizadas |
-| `switch` | statement clássico com `case`, `default`, fallthrough e `break`; `int`, `char` e `String` |
+| `switch` | statement clássico + arrow, switch expression, `default`, fallthrough e `yield`; `int`, `char`, `String` e enum |
 | Enums | constantes, tipo, `Enum.CONSTANTE`, comparação e `switch` |
 | Lambdas/streams | lambda de expressão, `forEach`, `removeIf`, `filter`, `map`, `collect(Collectors.toList())`, `count`, `anyMatch`/`allMatch`/`noneMatch`, `limit`, `sorted` |
 | Tipos | `int`, `double`, `boolean`, `char`, `String`, `T[]`, `void`; `long`/`float`/`byte`/`short` são normalizados |
@@ -45,7 +46,7 @@ limitação.
 | `HashSet`/`Set` | `add`, `contains`, `remove`, `size`, `isEmpty`, `clear`, `toString`, `for-each`; igualdade estrita do PHP |
 | `Scanner` | `next`, `nextInt`, `nextDouble`, `nextLine`, `hasNext*`, `close`; lê de stdin |
 | exceções | sem checagem de exceções checadas, sem multi-catch e sem try-with-resources; `printStackTrace` vai para stderr |
-| `switch` | só statement clássico; sem `switch`-expression/arrow, sem labels e sem `continue` dentro do switch |
+| `switch` | `continue` dentro do switch, labels e pattern matching em `switch` |
 | enums | só constantes; sem campos, métodos, `values()` ou `ordinal()` |
 | lambdas/streams | lambda só de expressão, sem method references; `collect` só `Collectors.toList()`; sem streams paralelos/infinitos |
 | modo projeto | nomes simples de classe ainda precisam ser únicos (sem aliases/namespaces duplicados); sem `.jar` e sem build incremental |
@@ -65,7 +66,7 @@ limitação.
 - Multi-catch, try-with-resources e validação de exceções checadas (`throws` é ignorado).
 - Nomes simples duplicados em pacotes diferentes e aliases de `use`.
 - Spring/JPA/Lombok e reflection completa (`getMethods`, `getFields` etc.).
-- `switch`-expression/arrow, labels e `continue` dentro de `switch`.
+- `continue` dentro de `switch`, labels e pattern matching em `switch`.
 - Sobrecarga de métodos (construtores podem ter aridade diferente).
 - `LinkedHashMap`/`TreeMap`/`entrySet`, `StringBuilder`, `ArrayList` além dos métodos listados.
 - Genéricos: só listas, mapas e sets; sem tipos boxed (`Integer` etc.).
@@ -87,6 +88,6 @@ limitação.
 
 ## Métricas atuais
 
-- Exemplos no diff: **26/26**
-- Testes unitários: **100**
+- Exemplos no diff: **27/27**
+- Testes unitários: **103**
 - Linhas aproximadas do transpilador: ver `wc -l src/transpilador/*.py`

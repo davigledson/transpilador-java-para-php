@@ -757,3 +757,72 @@ def test_var_cannot_be_null() -> None:
             }
             """
         )
+
+
+def test_switch_expression_semantics() -> None:
+    analyze(
+        """
+        class Main {
+            public static void main(String[] args) {
+                int x = 2;
+                String s = switch (x) {
+                    case 1 -> "um";
+                    default -> "outro";
+                };
+                String t = switch (x) {
+                    case 1 -> {
+                        yield "um";
+                    }
+                    default -> "outro";
+                };
+            }
+        }
+        """
+    )
+
+
+def test_switch_expression_requires_default() -> None:
+    with pytest.raises(TranspileError, match="default"):
+        analyze(
+            """
+            class Main {
+                public static void main(String[] args) {
+                    int x = 1;
+                    String s = switch (x) {
+                        case 1 -> "um";
+                    };
+                }
+            }
+            """
+        )
+
+
+def test_yield_outside_switch_expression_is_error() -> None:
+    with pytest.raises(TranspileError, match="yield"):
+        analyze(
+            """
+            class Main {
+                public static void main(String[] args) {
+                    yield 1;
+                }
+            }
+            """
+        )
+
+
+def test_switch_mixing_arrow_and_colon_is_error() -> None:
+    with pytest.raises(TranspileError, match="misture"):
+        analyze(
+            """
+            class Main {
+                public static void main(String[] args) {
+                    int x = 1;
+                    switch (x) {
+                        case 1:
+                            break;
+                        default -> System.out.println("x");
+                    }
+                }
+            }
+            """
+        )

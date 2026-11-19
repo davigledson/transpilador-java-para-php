@@ -249,7 +249,9 @@ class Throw(Node):
 @dataclass
 class SwitchCase(Node):
     value: Expr | None
-    stmts: list[Node]
+    stmts: list[Node] = field(default_factory=list)
+    arrow_body: Node | None = None
+    arrow: bool = False
     line: int = 0
     col: int = 0
 
@@ -258,6 +260,21 @@ class SwitchCase(Node):
 class Switch(Node):
     expr: Expr
     cases: list[SwitchCase]
+    line: int = 0
+    col: int = 0
+
+
+@dataclass
+class SwitchExpression(Expr):
+    expr: Expr
+    cases: list[SwitchCase]
+    line: int = 0
+    col: int = 0
+
+
+@dataclass
+class Yield(Node):
+    value: Expr
     line: int = 0
     col: int = 0
 

@@ -61,6 +61,7 @@ stmt           := block
                 | "try" block "finally" block
                 | "throw" expr ";"
                 | "switch" "(" expr ")" "{" switch_body "}"
+                | "yield" expr ";"
                 | "return" [ expr ] ";"
                 | "break" ";"
                 | "continue" ";"
@@ -72,6 +73,9 @@ catch_clause   := "catch" "(" type ID ")" block
 switch_body    := { switch_clause }
 switch_clause  := "case" expr ":" stmt_list
                 | "default" ":" stmt_list
+                | "case" expr "->" arrow_body
+                | "default" "->" arrow_body
+arrow_body     := expr ";" | block | "throw" expr ";"
 block          := "{" { stmt } "}"
 local_decl     := type ID [ "=" expr ] | "var" ID "=" expr
 for_header     := for_init ";" [ expr ] ";" [ expr ]         (* clássico *)
@@ -99,6 +103,7 @@ primary        := INT_LIT | DOUBLE_LIT | STRING_LIT | CHAR_LIT
                 | "new" class_ref generic_args_opt "(" args_opt ")"
                 | "new" array_type "[" expr "]"
                 | "(" expr ")"
+                | "switch" "(" expr ")" "{" switch_body "}"     (* switch expression *)
                 | ID "->" lambda_body
                 | "(" ")" "->" lambda_body
                 | "(" ID "," ID { "," ID } ")" "->" lambda_body

@@ -17,7 +17,7 @@ O subconjunto cobre classes, herança, interfaces, classes abstratas, enums,
 exceções, `switch`, `ArrayList`/`HashMap`/`HashSet`, `Scanner`, lambdas,
 streams, casts, `instanceof`, class literals, text blocks, anotações com
 argumentos e `package`/`import` mapeados para namespace/use do PHP. O
-resultado é validado por 100 testes unitários, 26 programas no teste
+resultado é validado por 103 testes unitários, 27 programas no teste
 diferencial Java×PHP e um teste de projeto multi-arquivo, todos executados
 por `make check` e pelo CI.
 
@@ -322,8 +322,8 @@ make check
 ### 6.2 Números atuais
 
 ```text
-100 testes unitários
-26/26 casos no diff Java×PHP
+103 testes unitários
+27/27 casos no diff Java×PHP
 [projeto] OK
 php -l em todo o runtime
 ```
@@ -334,7 +334,7 @@ O corpus cobre: `Hello`, `Calculadora`, `FizzBuzz`, `Vetores`, `Textos`,
 `Utilitarios`, `Conta`, `Banco`, `HerancaConta`, `Animais`, `Formas`,
 `BancoLista`, `Leitura`, `MapaBanco`, `Conjunto`, `Excecoes`, `Escolhas`,
 `Enums`, `Lambdas`, `BancoMenu`, `Moderno`, `Casts`, `Classes`, `Estoque`,
-`Funcionarios` e `Variaveis`.
+`Funcionarios`, `Variaveis` e `SwitchModerno`.
 
 O modo projeto usa `tests/project/src`, com `Main` em `package app`,
 `Conta`/`ContaCorrente` em `package model` e a exceção em `package error`.
@@ -386,7 +386,7 @@ Uma classe simples real (`BusinessException`) foi transpilada com sucesso.
 - Sem threads/concorrência.
 - Sem sobrecarga de métodos do usuário.
 - Sem multi-catch/try-with-resources.
-- Sem `switch`-expression/arrow.
+- Sem pattern matching em `switch`.
 - Sem métodos `default`/`static`/`private` em interfaces.
 - Genéricos de usuário e tipos boxed não suportados.
 - Nomes simples de classe precisam ser únicos no projeto.
@@ -399,7 +399,7 @@ Uma classe simples real (`BusinessException`) foi transpilada com sucesso.
 - `@interface` e anotações com semântica própria.
 - Sobrecarga com mangling.
 - `try-with-resources` e multi-catch.
-- `switch`-expression/arrow.
+- Pattern matching em `switch`.
 - Reflection mínima além de `Class`.
 - Melhor fidelidade de `char`/UTF-16 e overflow.
 - Build incremental e cache de análise.

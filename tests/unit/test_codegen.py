@@ -391,3 +391,27 @@ def test_var_codegen() -> None:
     assert "$x = 1;" in php
     assert '$nome = "Ana";' in php
     assert "var $" not in php
+
+
+def test_switch_arrow_and_expression_codegen() -> None:
+    php = generate(
+        """
+        class A {
+            public static void main(String[] args) {
+                int x = 1;
+                switch (x) {
+                    case 1 -> System.out.println("um");
+                    default -> System.out.println("outro");
+                }
+                String s = switch (x) {
+                    case 1 -> "um";
+                    default -> "outro";
+                };
+            }
+        }
+        """
+    )
+    assert "if ($__switch0 === 1)" in php
+    assert "$__switchResult" in php
+    assert 'case ($__switch1 === 1):' in php
+    assert "$s = $__switchResult" in php

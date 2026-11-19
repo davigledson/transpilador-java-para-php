@@ -350,21 +350,40 @@ def test_var_syntax() -> None:
     assert each.type is None
 
 
+def test_switch_arrow_and_expression_syntax() -> None:
+    program = parse(
+        """
+        class A {
+            void m(int x) {
+                switch (x) {
+                    case 1 -> System.out.println("um");
+                    default -> System.out.println("outro");
+                }
+                String s = switch (x) {
+                    case 1 -> "um";
+                    default -> {
+                        yield "outro";
+                    }
+                };
+            }
+        }
+        """
+    )
+    stmts = program.classes[0].members[0].body.stmts
+    switch_stmt = stmts[0]
+    assert isinstance(switch_stmt, ast.Switch)
+    assert switch_stmt.cases[0].arrow
+    assert isinstance(switch_stmt.cases[0].arrow_body, ast.Expr)
+    assert isinstance(stmts[1].init, ast.SwitchExpression)
+    assert isinstance(stmts[1].init.cases[1].arrow_body, ast.Block)
+
+
 @pytest.mark.parametrize(
     ("source", "message"),
     [
         ("public record Ponto(int x) { }", "record"),
         ("public @interface Foo { }", "@interface"),
         ("sealed class A { }", "sealed"),
-        (
-            'class A { void m(int x) { switch (x) { case 1 -> System.out.println("a"); } } }',
-            "switch arrow",
-        ),
-        (
-            'class A { void m(int x) { String s = switch (x) { default: break; }; } }',
-            "switch expression",
-        ),
-        ("class A { void m() { yield 1; } }", "yield"),
         ("class A { void m() { try (var x = 1) { } } }", "try-with-resources"),
         (
             "class A { void m() { try { } catch (RuntimeException | Error e) { } } }",

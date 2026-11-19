@@ -19,8 +19,8 @@ de prometer Java inteiro.
 - `HashMap`/`Map` e `HashSet`/`Set` com genéricos apagados.
 - Exceções: `try/catch/finally`, `throw`, `throws` (ignorado) e exceções
   embutidas ou customizadas (`extends RuntimeException`).
-- `switch` clássico com `case`, `default`, fallthrough e `break`; suporta
-  `int`, `char` e `String`.
+- `switch` clássico e Java 21: `case`, `default`, fallthrough, `break`,
+  arrow (`case 1 ->`) e `switch` expression com `yield`.
 - Enums simples (`enum Status { ATIVO, BLOQUEADO }`), acesso `Status.ATIVO`,
   comparação e `switch` sobre enum.
 - Lambdas de expressão (`n -> n.length() > 2`) e streams:
@@ -94,15 +94,13 @@ diagnóstico explícito, por exemplo:
 record Ponto(int x) { }        → record ainda não é suportado
 public @interface Foo { }      → @interface ainda não é suportado
 sealed class A { }             → sealed classes ainda não são suportadas
-case 1 -> ...                  → switch arrow ainda não é suportado
-String s = switch (...)        → switch expression ainda não é suportado
 try (...) { }                  → try-with-resources ainda não é suportado
 catch (A | B e)                → multi-catch ainda não é suportado
 ```
 
-Recursos como records, sealed, `switch` expression, pattern matching
-e try-with-resources ficam para fases futuras. `var` já é suportado em
-variáveis locais e em `for`/`for-each`.
+Recursos como records, sealed, pattern matching e try-with-resources
+ficam para fases futuras. `var` e `switch` arrow/expression já são
+suportados.
 
 ## Modo projeto (vários arquivos)
 
@@ -221,7 +219,7 @@ make demo   # diferencial só do Banco
 ```
 
 O teste diferencial compila o `.java`, executa, transpila, roda `php -l`,
-executa o PHP e compara a saída. Hoje: **26/26 casos**.
+executa o PHP e compara a saída. Hoje: **27/27 casos**.
 
 O CI em `.github/workflows/ci.yml` roda `make check` em cada push/PR com
 Python, PHP 8.3 e JDK 21.
@@ -320,8 +318,8 @@ sobrecarga de métodos, classes internas, `LinkedHashMap`/`TreeMap`/`entrySet`,
 `ArrayList`/`List`, `HashMap`/`Map`, `HashSet`/`Set` e `Stream`, e são
 apagados na geração.
 Exceções checadas não são validadas: `throws` é lido e ignorado; não há
-multi-catch nem try-with-resources. O `switch` é o clássico, sem
-`switch`-expression/arrow e sem `continue` dentro dele. Enums têm só
+multi-catch nem try-with-resources. `switch` arrow/expression é suportado;
+`continue` dentro de `switch` ainda não. Enums têm só
 constantes: sem campos, métodos, `values()` ou `ordinal()`. Lambdas só com
 corpo de expressão, sem method references; `collect` só aceita
 `Collectors.toList()`.
@@ -343,8 +341,8 @@ Detalhes e a matriz completa estão em [`docs/escopo.md`](docs/escopo.md).
 - [x] Lexer/parser do subconjunto
 - [x] AST + análise semântica básica
 - [x] Codegen PHP + runtime
-- [x] 26 programas de exemplo passando no diff
-- [x] 100 testes unitários
+- [x] 27 programas de exemplo passando no diff
+- [x] 103 testes unitários
 - [x] Herança simples (`extends`, `super`, override, polimorfismo)
 - [x] Interfaces e classes abstratas
 - [x] `ArrayList`/`List` + `Scanner`
@@ -361,4 +359,5 @@ Detalhes e a matriz completa estão em [`docs/escopo.md`](docs/escopo.md).
 - [x] `package`/`import` → namespace/use PHP
 - [x] Source level Java 21 + diagnósticos de recursos não suportados
 - [x] `var` (locals, `for` e `for-each`)
+- [x] `switch` arrow/expression + `yield`
 - [ ] Relatório final e slides
