@@ -25,13 +25,24 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 
 
-def run(cmd: list[str], *, env: dict[str, str] | None = None) -> subprocess.CompletedProcess[str]:
+def run(
+    cmd: list[str],
+    *,
+    env: dict[str, str] | None = None,
+    input_text: str | None = None,
+) -> subprocess.CompletedProcess[str]:
+    kwargs: dict[str, object] = {}
+    if input_text is None:
+        kwargs["stdin"] = subprocess.DEVNULL
+    else:
+        kwargs["input"] = input_text
     return subprocess.run(
         cmd,
         cwd=ROOT,
         text=True,
         capture_output=True,
         env=env,
+        **kwargs,
     )
 
 
@@ -92,7 +103,10 @@ def main(argv: list[str] | None = None) -> int:
             failures += 1
             continue
 
-        java_run = run(["java", "-cp", str(work / "java"), name])
+        stdin_path = path.with_suffix(".in")
+        stdin_text = stdin_path.read_text(encoding="utf-8") if stdin_path.exists() else None
+
+        java_run = run(["java", "-cp", str(work / "java"), name], input_text=stdin_text)
         if java_run.returncode != 0:
             fail("falha ao executar o Java", java_run)
             failures += 1
@@ -122,7 +136,8 @@ def main(argv: list[str] | None = None) -> int:
                 "-d",
                 "display_errors=1",
                 str(php_file),
-            ]
+            ],
+            input_text=stdin_text,
         )
         if php_run.returncode != 0:
             fail("falha ao executar o PHP", php_run)

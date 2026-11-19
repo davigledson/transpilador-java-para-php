@@ -31,19 +31,24 @@ class JavaType(Node):
     dims: int = 0
     line: int = 0
     col: int = 0
+    args: tuple[JavaType, ...] = ()
 
     def __str__(self) -> str:
-        return self.name + "[]" * self.dims
+        base = self.name + "[]" * self.dims
+        if self.args:
+            base += "<" + ", ".join(str(arg) for arg in self.args) + ">"
+        return base
 
     def __eq__(self, other: object) -> bool:
         return (
             isinstance(other, JavaType)
             and self.name == other.name
             and self.dims == other.dims
+            and self.args == other.args
         )
 
     def __hash__(self) -> int:
-        return hash((self.name, self.dims))
+        return hash((self.name, self.dims, self.args))
 
 
 INT = JavaType("int")
@@ -74,6 +79,7 @@ class ClassDecl(Node):
     members: list[Node]
     implements: list[str] = field(default_factory=list)
     modifiers: set[str] = field(default_factory=set)
+    is_interface: bool = False
     line: int = 0
     col: int = 0
 
@@ -93,7 +99,7 @@ class MethodDecl(Node):
     name: str
     return_type: JavaType
     params: list[Param]
-    body: Block
+    body: Block | None
     modifiers: set[str] = field(default_factory=set)
     line: int = 0
     col: int = 0
@@ -209,6 +215,31 @@ class Continue(Node):
     col: int = 0
 
 
+@dataclass
+class Catch(Node):
+    type: JavaType
+    name: str
+    body: Block
+    line: int = 0
+    col: int = 0
+
+
+@dataclass
+class Try(Node):
+    body: Block
+    catches: list[Catch]
+    finally_: Block | None
+    line: int = 0
+    col: int = 0
+
+
+@dataclass
+class Throw(Node):
+    value: Expr
+    line: int = 0
+    col: int = 0
+
+
 # ---------------------------------------------------------------------------
 # Expressões
 # ---------------------------------------------------------------------------
@@ -231,6 +262,12 @@ class Name(Expr):
 
 @dataclass
 class This(Expr):
+    line: int = 0
+    col: int = 0
+
+
+@dataclass
+class Super(Expr):
     line: int = 0
     col: int = 0
 
@@ -291,6 +328,7 @@ class Call(Expr):
 class NewObject(Expr):
     class_name: str
     args: list[Expr]
+    type_args: tuple[JavaType, ...] = ()
     line: int = 0
     col: int = 0
 

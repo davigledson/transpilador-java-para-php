@@ -8,7 +8,9 @@ def kinds(source: str) -> list[str]:
 
 def test_collect_type_names() -> None:
     source = "class A { } class B extends A { }"
-    assert collect_type_names(source) == {"A", "B"}
+    names = collect_type_names(source)
+    assert {"A", "B"} <= names
+    assert {"ArrayList", "List", "Scanner"} <= names
 
 
 def test_keywords_literals_and_typeid() -> None:

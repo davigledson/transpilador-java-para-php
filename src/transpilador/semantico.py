@@ -18,6 +18,31 @@ from .erros import TranspileError
 
 PRIMITIVES = {"int", "double", "boolean", "char"}
 BUILTIN_CLASSES = {"System", "Math", "Integer", "Double", "Boolean", "Character"}
+LIBRARY_TYPES = {"ArrayList", "List", "Scanner", "HashMap", "Map", "HashSet", "Set"}
+LIST_TYPES = {"ArrayList", "List"}
+MAP_TYPES = {"HashMap", "Map"}
+SET_TYPES = {"HashSet", "Set"}
+EXCEPTION_TYPES = {
+    "Throwable",
+    "Exception",
+    "RuntimeException",
+    "IllegalArgumentException",
+    "IllegalStateException",
+    "ArithmeticException",
+    "NullPointerException",
+    "IndexOutOfBoundsException",
+    "IOException",
+}
+EXCEPTION_PARENTS = {
+    "Exception": "Throwable",
+    "RuntimeException": "Exception",
+    "IllegalArgumentException": "RuntimeException",
+    "IllegalStateException": "RuntimeException",
+    "ArithmeticException": "RuntimeException",
+    "NullPointerException": "RuntimeException",
+    "IndexOutOfBoundsException": "RuntimeException",
+    "IOException": "Exception",
+}
 NUMERIC = {"int", "double", "char"}
 INTEGRAL = {"int", "char"}
 
@@ -39,6 +64,8 @@ class MethodInfo:
     params: list[ast.JavaType]
     is_static: bool
     node: ast.MethodDecl
+    is_override: bool = False
+    is_abstract: bool = False
 
 
 @dataclass
@@ -50,11 +77,15 @@ class CtorInfo:
 @dataclass
 class ClassInfo:
     name: str
+    parent: str | None = None
     fields: dict[str, FieldInfo] = field(default_factory=dict)
     methods: dict[str, MethodInfo] = field(default_factory=dict)
     ctors: list[CtorInfo] = field(default_factory=list)
+    interfaces: list[str] = field(default_factory=list)
     node: ast.ClassDecl | None = None
     has_main: bool = False
+    is_interface: bool = False
+    is_abstract: bool = False
 
 
 class SemanticAnalyzer:
@@ -67,6 +98,7 @@ class SemanticAnalyzer:
         self.current_static = False
         self.current_return_type: ast.JavaType | None = None
         self.loop_depth = 0
+        self.in_constructor = False
 
         self.scopes: list[dict[str, ast.JavaType]] = []
 
@@ -78,6 +110,7 @@ class SemanticAnalyzer:
         self.program = program
         for cls in program.classes:
             self._predeclare_class(cls)
+        self._validate_hierarchy()
         for cls in program.classes:
             self._declare_members(cls)
         for cls in program.classes:
@@ -96,21 +129,73 @@ class SemanticAnalyzer:
         )
 
     def _norm(self, t: ast.JavaType) -> ast.JavaType:
-        return ast.JavaType(PRIMITIVE_MAP.get(t.name, t.name), t.dims)
+        return ast.JavaType(
+            PRIMITIVE_MAP.get(t.name, t.name),
+            t.dims,
+            t.line,
+            t.col,
+            t.args,
+        )
 
     def _resolve_type(self, t: ast.JavaType, node: object, allow_void: bool = False) -> ast.JavaType:
         t = self._norm(t)
         if t.name == "void":
             if not allow_void:
                 self._error("void não pode ser usado como tipo de variável", node)
+            if t.args or t.dims:
+                self._error("void não pode ter argumentos genéricos nem dimensões", node)
             return t
+
+        if t.args and t.name not in (LIST_TYPES | MAP_TYPES | SET_TYPES):
+            self._error(
+                f"o tipo '{t.name}' não aceita argumentos genéricos nesta versão",
+                node,
+            )
+        if t.name in LIST_TYPES | SET_TYPES:
+            if len(t.args) > 1:
+                self._error(f"'{t.name}' espera no máximo um argumento genérico", node)
+            for arg in t.args:
+                if arg.dims == 0 and arg.name in PRIMITIVES:
+                    self._error(
+                        f"genéricos não aceitam o tipo primitivo '{arg.name}'",
+                        node,
+                    )
+                self._resolve_type(arg, node, allow_void=False)
+            return t
+        if t.name in MAP_TYPES:
+            if len(t.args) > 2:
+                self._error(f"'{t.name}' espera no máximo dois argumentos genéricos", node)
+            for arg in t.args:
+                if arg.dims == 0 and arg.name in PRIMITIVES:
+                    self._error(
+                        f"genéricos não aceitam o tipo primitivo '{arg.name}'",
+                        node,
+                    )
+                self._resolve_type(arg, node, allow_void=False)
+            return t
+        if t.name == "Scanner":
+            if t.args:
+                self._error("Scanner não aceita argumentos genéricos", node)
+            return t
+
         if t.dims > 0:
-            base = ast.JavaType(t.name)
+            base = ast.JavaType(t.name, 0, t.line, t.col, t.args)
             self._resolve_type(base, node, allow_void=False)
             return t
         if t.name in PRIMITIVES or t.name == "String":
+            if t.args:
+                self._error(f"'{t.name}' não aceita argumentos genéricos", node)
             return t
         if t.name in self.classes:
+            if t.args:
+                self._error(
+                    f"a classe '{t.name}' não é genérica nesta versão",
+                    node,
+                )
+            return t
+        if t.name in EXCEPTION_TYPES:
+            if t.args:
+                self._error(f"'{t.name}' não aceita argumentos genéricos", node)
             return t
         if t.name in BUILTIN_CLASSES:
             self._error(f"o tipo {t.name} não pode ser declarado diretamente", node)
@@ -124,10 +209,71 @@ class SemanticAnalyzer:
         return t.dims == 0 and t.name in INTEGRAL
 
     def _is_reference(self, t: ast.JavaType) -> bool:
-        return t.dims > 0 or t.name == "String" or (t.dims == 0 and t.name in self.classes)
+        return (
+            t.dims > 0
+            or t.name == "String"
+            or t.name in LIBRARY_TYPES
+            or t.name in EXCEPTION_TYPES
+            or (t.dims == 0 and t.name in self.classes)
+        )
 
     def _is_boolean(self, t: ast.JavaType) -> bool:
         return t.dims == 0 and t.name == "boolean"
+
+    def _builtin_exception_subtype(self, child: str, parent: str) -> bool:
+        if child == parent:
+            return True
+        current = child
+        seen: set[str] = set()
+        while current in EXCEPTION_PARENTS and current not in seen:
+            seen.add(current)
+            current = EXCEPTION_PARENTS[current]
+            if current == parent:
+                return True
+        return False
+
+    def _class_is_exception(self, class_name: str) -> bool:
+        current: str | None = class_name
+        seen: set[str] = set()
+        while current and current not in seen:
+            if current in EXCEPTION_TYPES:
+                return True
+            seen.add(current)
+            info = self.classes.get(current)
+            if info is None:
+                return False
+            current = info.parent
+        return False
+
+    def _is_exception_type(self, t: ast.JavaType) -> bool:
+        if t.dims > 0:
+            return False
+        if t.name in EXCEPTION_TYPES:
+            return True
+        if t.name in self.classes:
+            return self._class_is_exception(t.name)
+        return False
+
+    def _is_list_type(self, t: ast.JavaType) -> bool:
+        return t.dims == 0 and t.name in LIST_TYPES
+
+    def _list_element_type(self, t: ast.JavaType) -> ast.JavaType:
+        return t.args[0] if t.args else ast.JavaType("Object")
+
+    def _is_map_type(self, t: ast.JavaType) -> bool:
+        return t.dims == 0 and t.name in MAP_TYPES
+
+    def _is_set_type(self, t: ast.JavaType) -> bool:
+        return t.dims == 0 and t.name in SET_TYPES
+
+    def _map_key_type(self, t: ast.JavaType) -> ast.JavaType:
+        return t.args[0] if len(t.args) > 0 else ast.JavaType("Object")
+
+    def _map_value_type(self, t: ast.JavaType) -> ast.JavaType:
+        return t.args[1] if len(t.args) > 1 else ast.JavaType("Object")
+
+    def _set_element_type(self, t: ast.JavaType) -> ast.JavaType:
+        return t.args[0] if t.args else ast.JavaType("Object")
 
     def _is_null(self, t: ast.JavaType) -> bool:
         return t.dims == 0 and t.name == "null"
@@ -137,11 +283,32 @@ class SemanticAnalyzer:
             return self._is_reference(target)
         if target == source:
             return True
+        if self._is_list_type(target) and self._is_list_type(source):
+            if not target.args or not source.args:
+                return True
+            return target.args == source.args
+        if self._is_map_type(target) and self._is_map_type(source):
+            if not target.args or not source.args:
+                return True
+            return target.args == source.args
+        if self._is_set_type(target) and self._is_set_type(source):
+            if not target.args or not source.args:
+                return True
+            return target.args == source.args
         if target.dims == 0 and source.dims == 0:
             if target.name == "double" and source.name in {"int", "char"}:
                 return True
             if target.name == "int" and source.name == "char":
                 return True
+            if target.name in self.classes and source.name in self.classes:
+                return self._is_subtype(source.name, target.name)
+        if (
+            target.dims > 0
+            and target.dims == source.dims
+            and target.name in self.classes
+            and source.name in self.classes
+        ):
+            return self._is_subtype(source.name, target.name)
         return False
 
     def _common_numeric(self, a: ast.JavaType, b: ast.JavaType, node: object) -> ast.JavaType:
@@ -188,6 +355,219 @@ class SemanticAnalyzer:
                 return scope[name]
         return None
 
+    def _is_subtype(self, child: str, parent: str) -> bool:
+        if child == parent:
+            return True
+        seen: set[str] = set()
+
+        def visit(name: str) -> bool:
+            if name == parent:
+                return True
+            if name in EXCEPTION_TYPES:
+                return self._builtin_exception_subtype(name, parent)
+            if name in seen:
+                return False
+            seen.add(name)
+            info = self.classes.get(name)
+            if info is None:
+                return False
+            if info.parent and visit(info.parent):
+                return True
+            for iface in info.interfaces:
+                if visit(iface):
+                    return True
+            return False
+
+        return visit(child)
+
+    def _find_method_in_interface(
+        self,
+        interface_name: str,
+        name: str,
+        seen: set[str],
+    ) -> tuple[MethodInfo, str] | None:
+        if interface_name in seen:
+            return None
+        seen.add(interface_name)
+        info = self.classes.get(interface_name)
+        if info is None:
+            return None
+        if name in info.methods:
+            return info.methods[name], interface_name
+        if info.parent:
+            found = self._find_method_in_interface(info.parent, name, seen)
+            if found is not None:
+                return found
+        for iface in info.interfaces:
+            found = self._find_method_in_interface(iface, name, seen)
+            if found is not None:
+                return found
+        return None
+
+    def _find_field(self, class_name: str, name: str) -> tuple[FieldInfo, str] | None:
+        current: str | None = class_name
+        seen: set[str] = set()
+        while current and current not in seen:
+            seen.add(current)
+            info = self.classes.get(current)
+            if info is None:
+                return None
+            if name in info.fields:
+                return info.fields[name], current
+            current = info.parent
+        return None
+
+    def _find_method(self, class_name: str, name: str) -> tuple[MethodInfo, str] | None:
+        current: str | None = class_name
+        seen: set[str] = set()
+        while current and current not in seen:
+            seen.add(current)
+            info = self.classes.get(current)
+            if info is None:
+                return None
+            if name in info.methods:
+                return info.methods[name], current
+            current = info.parent
+
+        current = class_name
+        seen = set()
+        while current and current not in seen:
+            seen.add(current)
+            info = self.classes.get(current)
+            if info is None:
+                return None
+            for iface in info.interfaces:
+                found = self._find_method_in_interface(iface, name, set())
+                if found is not None:
+                    return found
+            current = info.parent
+        return None
+
+    def _has_any_constructor(self, class_name: str) -> bool:
+        current: str | None = class_name
+        seen: set[str] = set()
+        while current and current not in seen:
+            seen.add(current)
+            info = self.classes.get(current)
+            if info is None:
+                return False
+            if info.ctors:
+                return True
+            current = info.parent
+        return False
+
+    def _find_concrete_method(self, class_name: str, name: str) -> MethodInfo | None:
+        current: str | None = class_name
+        seen: set[str] = set()
+        while current and current not in seen:
+            seen.add(current)
+            info = self.classes.get(current)
+            if info is None:
+                return None
+            if name in info.methods:
+                method = info.methods[name]
+                return None if method.is_abstract else method
+            current = info.parent
+        return None
+
+    def _collect_interface_names(self, class_name: str) -> list[str]:
+        result: list[str] = []
+        seen: set[str] = set()
+
+        def visit(name: str) -> None:
+            info = self.classes.get(name)
+            if info is None:
+                return
+            parent_info = self.classes.get(info.parent) if info.parent else None
+            if parent_info is not None and parent_info.is_interface:
+                if info.parent not in seen:
+                    seen.add(info.parent)
+                    result.append(info.parent)
+                visit(info.parent)
+            for iface in info.interfaces:
+                if iface in seen:
+                    continue
+                seen.add(iface)
+                result.append(iface)
+                visit(iface)
+            if parent_info is not None and not parent_info.is_interface:
+                visit(info.parent)
+
+        visit(class_name)
+        return result
+
+    def _check_signature(
+        self,
+        child: MethodInfo,
+        parent: MethodInfo,
+        owner: str,
+        node: object,
+    ) -> None:
+        if parent.is_static != child.is_static:
+            self._error(
+                f"método '{child.name}' muda entre static e instância em relação a '{owner}'",
+                node,
+            )
+        if len(parent.params) != len(child.params):
+            self._error(
+                f"método '{child.name}' tem quantidade de parâmetros diferente de '{owner}'",
+                node,
+            )
+        for expected, actual in zip(parent.params, child.params):
+            if not self._compatible(expected, actual) or not self._compatible(actual, expected):
+                self._error(
+                    f"parâmetros incompatíveis em '{child.name}': {expected} vs {actual}",
+                    node,
+                )
+        if not self._compatible(parent.return_type, child.return_type):
+            self._error(
+                f"retorno incompatível em '{child.name}': "
+                f"{parent.return_type} vs {child.return_type}",
+                node,
+            )
+
+    def _check_implementation(self, info: ClassInfo) -> None:
+        if info.is_interface:
+            return
+
+        required: dict[str, tuple[MethodInfo, str]] = {}
+        current: str | None = info.name
+        seen: set[str] = set()
+        while current and current not in seen:
+            seen.add(current)
+            class_info = self.classes.get(current)
+            if class_info is None:
+                break
+            for name, method in class_info.methods.items():
+                if method.is_abstract and name not in required:
+                    required[name] = (method, current)
+            current = class_info.parent
+
+        for iface in self._collect_interface_names(info.name):
+            interface_info = self.classes[iface]
+            for name, method in interface_info.methods.items():
+                if name not in required:
+                    required[name] = (method, iface)
+
+        for name, (required_method, owner) in required.items():
+            concrete = self._find_concrete_method(info.name, name)
+            if concrete is None:
+                if not info.is_abstract:
+                    self._error(
+                        f"classe concreta '{info.name}' não implementa o método "
+                        f"'{name}' exigido por '{owner}'",
+                        info.node,
+                    )
+                continue
+            self._check_signature(concrete, required_method, owner, concrete.node)
+
+    def _is_super_ctor_stmt(self, stmt: ast.Node) -> bool:
+        return (
+            isinstance(stmt, ast.ExprStmt)
+            and isinstance(stmt.expr, ast.Call)
+            and isinstance(stmt.expr.callee, ast.Super)
+        )
+
     # ------------------------------------------------------------------
     # Declaração de classes
     # ------------------------------------------------------------------
@@ -195,19 +575,96 @@ class SemanticAnalyzer:
     def _predeclare_class(self, cls: ast.ClassDecl) -> None:
         if cls.name in self.classes:
             self._error(f"classe '{cls.name}' já declarada", cls)
-        if cls.extends:
-            self._error("herança (extends) ainda não é suportada nesta versão", cls)
-        if cls.implements:
-            self._error("interfaces (implements) ainda não são suportadas nesta versão", cls)
-        if "abstract" in cls.modifiers:
-            self._error("classes abstratas ainda não são suportadas nesta versão", cls)
-        self.classes[cls.name] = ClassInfo(name=cls.name, node=cls)
+        is_interface = cls.is_interface
+        is_abstract = is_interface or ("abstract" in cls.modifiers)
+        if is_abstract and "final" in cls.modifiers:
+            self._error(
+                f"'{cls.name}' não pode ser final e abstract ao mesmo tempo",
+                cls,
+            )
+        self.classes[cls.name] = ClassInfo(
+            name=cls.name,
+            parent=cls.extends,
+            interfaces=list(cls.implements),
+            node=cls,
+            is_interface=is_interface,
+            is_abstract=is_abstract,
+        )
+
+    def _validate_hierarchy(self) -> None:
+        for info in self.classes.values():
+            parent_info = None
+            if info.parent:
+                if info.parent == info.name:
+                    self._error(f"'{info.name}' não pode herdar de si mesmo", info.node)
+                if info.parent in EXCEPTION_TYPES:
+                    if info.is_interface:
+                        self._error(
+                            f"interface '{info.name}' não pode estender uma exceção",
+                            info.node,
+                        )
+                elif info.parent not in self.classes:
+                    self._error(
+                        f"superclasse '{info.parent}' de '{info.name}' não encontrada",
+                        info.node,
+                    )
+                else:
+                    parent_info = self.classes[info.parent]
+                    if info.is_interface and not parent_info.is_interface:
+                        self._error(
+                            f"interface '{info.name}' só pode estender outra interface",
+                            info.node,
+                        )
+                    if not info.is_interface and parent_info.is_interface:
+                        self._error(
+                            f"classe '{info.name}' não pode estender a interface '{info.parent}'",
+                            info.node,
+                        )
+
+            if info.is_interface and info.interfaces:
+                self._error("interface não pode usar implements", info.node)
+
+            if len(set(info.interfaces)) != len(info.interfaces):
+                self._error(f"interface repetida em '{info.name}'", info.node)
+
+            for iface in info.interfaces:
+                if iface == info.name:
+                    self._error(f"'{info.name}' não pode implementar a si mesma", info.node)
+                if iface not in self.classes:
+                    self._error(
+                        f"interface '{iface}' implementada por '{info.name}' não encontrada",
+                        info.node,
+                    )
+                if not self.classes[iface].is_interface:
+                    self._error(
+                        f"'{iface}' não é uma interface e não pode ser implementada por '{info.name}'",
+                        info.node,
+                    )
+
+            # Ciclos via extends/implements.
+            def visit(name: str, path: list[str]) -> None:
+                if name in path:
+                    self._error(f"ciclo de herança envolvendo '{name}'", info.node)
+                current = self.classes.get(name)
+                if current is None:
+                    return
+                if current.parent:
+                    visit(current.parent, path + [name])
+                for iface in current.interfaces:
+                    visit(iface, path + [name])
+
+            visit(info.name, [])
 
     def _declare_members(self, cls: ast.ClassDecl) -> None:
         info = self.classes[cls.name]
 
         for member in cls.members:
             if isinstance(member, ast.FieldDecl):
+                if info.is_interface:
+                    self._error(
+                        "constantes/campos de interface ainda não são suportados",
+                        member,
+                    )
                 field_type = self._resolve_type(member.type, member)
                 if member.name in info.fields:
                     self._error(f"campo '{member.name}' duplicado em {cls.name}", member)
@@ -230,14 +687,76 @@ class SemanticAnalyzer:
                     )
                 return_type = self._resolve_type(member.return_type, member, allow_void=True)
                 params = [self._resolve_type(param.type, param) for param in member.params]
+                explicit_abstract = "abstract" in member.modifiers
+
+                if info.is_interface:
+                    if member.body is not None:
+                        self._error(
+                            f"método '{member.name}' de interface não pode ter corpo",
+                            member,
+                        )
+                    if "static" in member.modifiers:
+                        self._error(
+                            "métodos static em interface ainda não são suportados",
+                            member,
+                        )
+                    if "private" in member.modifiers:
+                        self._error(
+                            "métodos private em interface ainda não são suportados",
+                            member,
+                        )
+                    if "final" in member.modifiers:
+                        self._error(
+                            "método de interface não pode ser final",
+                            member,
+                        )
+                    is_abstract = True
+                elif member.body is None:
+                    if "static" in member.modifiers:
+                        self._error(
+                            f"método abstrato '{member.name}' não pode ser static",
+                            member,
+                        )
+                    if "private" in member.modifiers:
+                        self._error(
+                            f"método abstrato '{member.name}' não pode ser private",
+                            member,
+                        )
+                    if "final" in member.modifiers:
+                        self._error(
+                            f"método abstrato '{member.name}' não pode ser final",
+                            member,
+                        )
+                    if not explicit_abstract:
+                        self._error(
+                            f"método '{member.name}' sem corpo precisa ser abstract",
+                            member,
+                        )
+                    if not info.is_abstract:
+                        self._error(
+                            f"método abstrato '{member.name}' em classe não abstrata",
+                            member,
+                        )
+                    is_abstract = True
+                else:
+                    if explicit_abstract:
+                        self._error(
+                            f"método abstrato '{member.name}' não pode ter corpo",
+                            member,
+                        )
+                    is_abstract = False
+
                 info.methods[member.name] = MethodInfo(
                     name=member.name,
                     return_type=return_type,
                     params=params,
                     is_static="static" in member.modifiers,
                     node=member,
+                    is_abstract=is_abstract,
                 )
             elif isinstance(member, ast.ConstructorDecl):
+                if info.is_interface:
+                    self._error("interface não pode ter construtor", member)
                 if member.name != cls.name:
                     self._error(
                         f"construtor '{member.name}' não corresponde à classe '{cls.name}'",
@@ -257,12 +776,59 @@ class SemanticAnalyzer:
         self.current_class = info
         self.current_method = None
         self.current_return_type = None
+        self.in_constructor = False
+
+        parent_info = self.classes.get(info.parent) if info.parent else None
+        if parent_info is not None:
+            for field in info.fields.values():
+                inherited = self._find_field(info.parent, field.name)
+                if inherited is not None:
+                    self._error(
+                        f"campo '{field.name}' já existe na superclasse '{inherited[1]}'",
+                        field.node,
+                    )
+            for method in info.methods.values():
+                inherited = self._find_method(info.parent, method.name)
+                if inherited is None:
+                    continue
+                parent_method, owner = inherited
+                if "final" in parent_method.node.modifiers:
+                    self._error(
+                        f"método '{method.name}' é final em '{owner}' e não pode ser sobrescrito",
+                        method.node,
+                    )
+                self._check_signature(method, parent_method, owner, method.node)
+                method.is_override = True
+
+            # Um método declarado na classe também precisa respeitar as
+            # assinaturas das interfaces implementadas.
+            for iface in self._collect_interface_names(info.name):
+                for method in info.methods.values():
+                    found = self._find_method_in_interface(iface, method.name, set())
+                    if found is None:
+                        continue
+                    interface_method, interface_owner = found
+                    self._check_signature(
+                        method,
+                        interface_method,
+                        interface_owner,
+                        method.node,
+                    )
+
+        if not info.ctors and parent_info is not None:
+            if parent_info.ctors and not any(len(ctor.params) == 0 for ctor in parent_info.ctors):
+                self._error(
+                    f"'{info.name}' precisa de um construtor que chame super(...), "
+                    f"pois '{parent_info.name}' não tem construtor sem argumentos",
+                    cls,
+                )
 
         for member in cls.members:
             if isinstance(member, ast.FieldDecl):
                 self.current_static = "static" in member.modifiers
                 self.current_method = None
                 self.current_return_type = None
+                self.in_constructor = False
                 self.scopes = []
                 if member.init is not None:
                     self._push_scope()
@@ -279,30 +845,67 @@ class SemanticAnalyzer:
                 self.current_method = method
                 self.current_static = method.is_static
                 self.current_return_type = method.return_type
+                self.in_constructor = False
                 self.scopes = []
-                self._push_scope()
-                for param, param_type in zip(member.params, method.params):
-                    self._declare(param.name, param_type, param)
-                self._check_stmt(member.body)
-                self._pop_scope()
+                if member.body is not None:
+                    self._push_scope()
+                    for param, param_type in zip(member.params, method.params):
+                        self._declare(param.name, param_type, param)
+                    self._check_stmt(member.body)
+                    self._pop_scope()
             elif isinstance(member, ast.ConstructorDecl):
                 self.current_method = None
                 self.current_static = False
                 self.current_return_type = ast.VOID
+                self.in_constructor = True
                 self.scopes = []
+
+                stmts = member.body.stmts if isinstance(member.body, ast.Block) else []
+                super_positions = [
+                    index
+                    for index, stmt in enumerate(stmts)
+                    if self._is_super_ctor_stmt(stmt)
+                ]
+                if len(super_positions) > 1:
+                    self._error(
+                        "construtor não pode chamar super(...) mais de uma vez",
+                        member,
+                    )
+                if super_positions and super_positions[0] != 0:
+                    self._error(
+                        "super(...) deve ser a primeira instrução do construtor",
+                        stmts[super_positions[0]],
+                    )
+                if (
+                    not super_positions
+                    and parent_info is not None
+                    and parent_info.ctors
+                    and not any(len(ctor.params) == 0 for ctor in parent_info.ctors)
+                ):
+                    self._error(
+                        f"construtor de '{info.name}' deve chamar super(...) explicitamente",
+                        member,
+                    )
+
                 self._push_scope()
                 # Declara os parâmetros usando os tipos resolvidos na declaração.
                 for param in member.params:
                     self._declare(param.name, self._resolve_type(param.type, param), param)
                 self._check_stmt(member.body)
                 self._pop_scope()
+                self.in_constructor = False
+
+        self._check_implementation(info)
 
         self.current_class = None
         self.current_method = None
         self.current_return_type = None
+        self.in_constructor = False
 
     def _check_mains(self) -> None:
         for info in self.classes.values():
+            if info.is_interface:
+                continue
             if "main" not in info.methods:
                 continue
             method = info.methods["main"]
@@ -361,6 +964,28 @@ class SemanticAnalyzer:
             cond = self.analyze_expr(node.cond)
             if not self._is_boolean(cond):
                 self._error(f"condição do do-while deve ser boolean, mas é {cond}", node.cond)
+        elif isinstance(node, ast.Try):
+            self._check_stmt(node.body)
+            for catch in node.catches:
+                catch_type = self._resolve_type(catch.type, catch)
+                if not self._is_exception_type(catch_type):
+                    self._error(
+                        f"catch espera um tipo de exceção, mas recebeu {catch_type}",
+                        catch,
+                    )
+                self._push_scope()
+                self._declare(catch.name, catch_type, catch)
+                self._check_stmt(catch.body)
+                self._pop_scope()
+            if node.finally_ is not None:
+                self._check_stmt(node.finally_)
+        elif isinstance(node, ast.Throw):
+            value_type = self.analyze_expr(node.value)
+            if not self._is_exception_type(value_type):
+                self._error(
+                    f"throw espera uma exceção, mas recebeu {value_type}",
+                    node.value,
+                )
         elif isinstance(node, ast.For):
             self._push_scope()
             if node.init is not None:
@@ -380,14 +1005,19 @@ class SemanticAnalyzer:
             self._pop_scope()
         elif isinstance(node, ast.ForEach):
             iterable = self.analyze_expr(node.iterable)
-            if iterable.dims == 0:
+            if self._is_list_type(iterable):
+                element = self._list_element_type(iterable)
+            elif self._is_set_type(iterable):
+                element = self._set_element_type(iterable)
+            elif iterable.dims > 0:
+                element = ast.JavaType(iterable.name, iterable.dims - 1, args=iterable.args)
+            else:
                 self._error(
-                    f"for-each espera um array, mas recebeu {iterable}",
+                    f"for-each espera um array ou ArrayList/List, mas recebeu {iterable}",
                     node.iterable,
                 )
-            element = ast.JavaType(iterable.name, iterable.dims - 1)
             declared = self._resolve_type(node.type, node)
-            if not self._compatible(declared, element):
+            if element.name != "Object" and not self._compatible(declared, element):
                 self._error(
                     f"não é possível iterar {iterable} como {declared}",
                     node,
@@ -455,8 +1085,9 @@ class SemanticAnalyzer:
                 node.binding = ("local", node.id)
                 return local
             if self.current_class is not None:
-                field = self.current_class.fields.get(node.id)
-                if field is not None:
+                found = self._find_field(self.current_class.name, node.id)
+                if found is not None:
+                    field, owner = found
                     if self.current_static and not field.is_static:
                         self._error(
                             f"campo de instância '{node.id}' não pode ser usado em contexto estático",
@@ -464,7 +1095,7 @@ class SemanticAnalyzer:
                         )
                     node.binding = (
                         "field",
-                        self.current_class.name,
+                        owner,
                         node.id,
                         field.is_static,
                     )
@@ -478,6 +1109,13 @@ class SemanticAnalyzer:
             if self.current_static or self.current_class is None:
                 self._error("'this' não pode ser usado em contexto estático", node)
             return ast.JavaType(self.current_class.name)
+
+        if isinstance(node, ast.Super):
+            if self.current_static or self.current_class is None:
+                self._error("'super' não pode ser usado em contexto estático", node)
+            if self.current_class.parent is None:
+                self._error("'super' usado em classe sem superclasse", node)
+            return ast.JavaType(self.current_class.parent)
 
         if isinstance(node, ast.FieldAccess):
             return self._analyze_field_access(node)
@@ -626,6 +1264,9 @@ class SemanticAnalyzer:
         if isinstance(target, ast.Name) and target.id == "System":
             if name == "out":
                 return ast.JavaType("__System_out")
+            if name == "in":
+                node.php_constant = "STDIN"
+                return ast.JavaType("__System_in")
             self._error(f"campo System.{name} não suportado", node)
 
         if isinstance(target, ast.Name) and target.id == "Math":
@@ -654,12 +1295,12 @@ class SemanticAnalyzer:
             self._error(f"campo Double.{name} não suportado", node)
 
         if isinstance(target, ast.Name) and target.id in self.classes:
-            info = self.classes[target.id]
-            field_info = info.fields.get(name)
-            if field_info is None:
+            found = self._find_field(target.id, name)
+            if found is None:
                 self._error(f"campo '{name}' não existe em {target.id}", node)
+            field_info, owner = found
             node.is_static_field = True
-            node.owner_class = target.id
+            node.owner_class = owner
             return field_info.type
 
         target_type = self.analyze_expr(target)
@@ -668,12 +1309,14 @@ class SemanticAnalyzer:
             return ast.INT
 
         if target_type.dims == 0 and target_type.name in self.classes:
-            info = self.classes[target_type.name]
-            field_info = info.fields.get(name)
-            if field_info is None:
+            found = self._find_field(target_type.name, name)
+            if found is None:
                 self._error(f"campo '{name}' não existe em {target_type.name}", node)
+            field_info, owner = found
+            if isinstance(target, ast.Super):
+                node.super_field = True
             node.is_static_field = field_info.is_static
-            node.owner_class = target_type.name
+            node.owner_class = owner
             return field_info.type
 
         if target_type.name == "String" and target_type.dims == 0:
@@ -690,6 +1333,9 @@ class SemanticAnalyzer:
 
     def _analyze_call(self, node: ast.Call) -> ast.JavaType:
         callee = node.callee
+
+        if isinstance(callee, ast.Super):
+            return self._analyze_super_ctor(node)
 
         if not isinstance(callee, ast.FieldAccess):
             if isinstance(callee, ast.Name):
@@ -778,6 +1424,10 @@ class SemanticAnalyzer:
         if isinstance(target, ast.Name) and target.id == "Math":
             return self._analyze_math_call(node, method)
 
+        # super.metodo(...)
+        if isinstance(target, ast.Super):
+            return self._analyze_super_call(node, method)
+
         # Chamada estática de classe do usuário: Classe.metodo(...)
         if isinstance(target, ast.Name) and target.id in self.classes:
             return self._analyze_static_call(node, target.id, method)
@@ -788,25 +1438,110 @@ class SemanticAnalyzer:
         if target_type.name == "String" and target_type.dims == 0:
             return self._analyze_string_call(node, method)
 
+        if self._is_list_type(target_type):
+            return self._analyze_list_call(node, method, target_type)
+
+        if self._is_map_type(target_type):
+            return self._analyze_map_call(node, method, target_type)
+
+        if self._is_set_type(target_type):
+            return self._analyze_set_call(node, method, target_type)
+
+        if target_type.dims == 0 and target_type.name == "Scanner":
+            return self._analyze_scanner_call(node, method)
+
+        if self._is_exception_type(target_type):
+            return self._analyze_exception_call(node, method)
+
         if target_type.dims == 0 and target_type.name in self.classes:
-            info = self.classes[target_type.name]
-            method_info = info.methods.get(method)
-            if method_info is None:
+            found = self._find_method(target_type.name, method)
+            if found is None:
                 self._error(f"método '{method}' não existe em {target_type.name}", node)
+            method_info, owner = found
             self._check_call_args(method, node.args, method_info.params, node)
             node.call_kind = "instance"
             node.method_name = method
-            node.owner_class = target_type.name
+            node.owner_class = owner
             return method_info.return_type
 
         self._error(f"chamada de método em tipo não suportado: {target_type}", node)
 
+    def _analyze_super_ctor(self, node: ast.Call) -> ast.JavaType:
+        if (
+            not self.in_constructor
+            or self.current_class is None
+            or self.current_class.parent is None
+        ):
+            self._error(
+                "super(...) só pode ser chamado no construtor de uma subclasse",
+                node,
+            )
+        parent_name = self.current_class.parent
+        arg_types = [self.analyze_expr(arg) for arg in node.args]
+
+        if parent_name in EXCEPTION_TYPES:
+            if len(arg_types) > 1:
+                self._error(f"'{parent_name}' espera no máximo uma mensagem", node)
+            if arg_types and arg_types[0] not in {ast.STRING, ast.INT}:
+                self._error(
+                    f"'{parent_name}' espera String (ou int para código)",
+                    node.args[0],
+                )
+            node.call_kind = "super_ctor"
+            node.owner_class = parent_name
+            return ast.VOID
+
+        parent_info = self.classes[parent_name]
+        if not parent_info.ctors:
+            if arg_types:
+                self._error(
+                    f"'{parent_info.name}' não declara construtor com "
+                    f"{len(arg_types)} argumento(s)",
+                    node,
+                )
+        else:
+            matched = False
+            for ctor in parent_info.ctors:
+                if len(ctor.params) != len(arg_types):
+                    continue
+                if all(self._compatible(p, a) for p, a in zip(ctor.params, arg_types)):
+                    matched = True
+                    break
+            if not matched:
+                self._error(
+                    f"nenhum construtor de '{parent_info.name}' aceita "
+                    f"({', '.join(str(t) for t in arg_types)})",
+                    node,
+                )
+
+        node.call_kind = "super_ctor"
+        node.owner_class = parent_info.name
+        return ast.VOID
+
+    def _analyze_super_call(self, node: ast.Call, method: str) -> ast.JavaType:
+        if self.current_static or self.current_class is None or self.current_class.parent is None:
+            self._error("super.metodo(...) só pode ser usado em contexto de instância", node)
+        found = self._find_method(self.current_class.parent, method)
+        if found is None:
+            self._error(
+                f"método '{method}' não existe na superclasse "
+                f"'{self.current_class.parent}'",
+                node,
+            )
+        method_info, owner = found
+        self._check_call_args(method, node.args, method_info.params, node)
+        node.call_kind = "super_method"
+        node.method_name = method
+        node.owner_class = owner
+        return method_info.return_type
+
     def _analyze_unqualified_call(self, node: ast.Call, method: str) -> ast.JavaType:
         if self.current_class is None:
             self._error(f"método '{method}' não encontrado", node)
-        method_info = self.current_class.methods.get(method)
-        if method_info is None:
+        found = self._find_method(self.current_class.name, method)
+        if found is None:
             self._error(f"método '{method}' não encontrado", node)
+        method_info, owner = found
         self._check_call_args(method, node.args, method_info.params, node)
         if self.current_static and not method_info.is_static:
             self._error(
@@ -815,14 +1550,14 @@ class SemanticAnalyzer:
             )
         node.call_kind = "self_static" if method_info.is_static else "self_instance"
         node.method_name = method
-        node.owner_class = self.current_class.name
+        node.owner_class = owner
         return method_info.return_type
 
     def _analyze_static_call(self, node: ast.Call, class_name: str, method: str) -> ast.JavaType:
-        info = self.classes[class_name]
-        method_info = info.methods.get(method)
-        if method_info is None:
+        found = self._find_method(class_name, method)
+        if found is None:
             self._error(f"método '{method}' não existe em {class_name}", node)
+        method_info, _owner = found
         if not method_info.is_static:
             self._error(f"método '{method}' não é estático", node)
         self._check_call_args(method, node.args, method_info.params, node)
@@ -959,6 +1694,327 @@ class SemanticAnalyzer:
         node.method_name = method
         return result
 
+    def _analyze_list_call(
+        self,
+        node: ast.Call,
+        method: str,
+        target_type: ast.JavaType,
+    ) -> ast.JavaType:
+        element = self._list_element_type(target_type)
+        arg_types = [self.analyze_expr(arg) for arg in node.args]
+
+        def arity(expected: int) -> None:
+            if len(arg_types) != expected:
+                self._error(
+                    f"{target_type.name}.{method} espera {expected} argumento(s), "
+                    f"recebeu {len(arg_types)}",
+                    node,
+                )
+
+        def check_element(index: int) -> None:
+            if index >= len(arg_types):
+                return
+            actual = arg_types[index]
+            if element.name != "Object" and not self._compatible(element, actual):
+                self._error(
+                    f"{target_type.name}.{method} espera {element}, recebeu {actual}",
+                    node.args[index],
+                )
+
+        if method == "add":
+            if len(arg_types) == 1:
+                check_element(0)
+                node.call_kind = "list_add"
+                node.method_name = "add"
+                return ast.BOOLEAN
+            if len(arg_types) == 2:
+                if not self._is_integral(arg_types[0]):
+                    self._error(f"{target_type.name}.add espera int no índice", node.args[0])
+                check_element(1)
+                node.call_kind = "list_add_at"
+                node.method_name = "addAt"
+                return ast.VOID
+            self._error(f"{target_type.name}.add espera 1 ou 2 argumentos", node)
+
+        if method == "get":
+            arity(1)
+            if not self._is_integral(arg_types[0]):
+                self._error(f"{target_type.name}.get espera int", node.args[0])
+            node.call_kind = "list_get"
+            node.method_name = "get"
+            return element
+
+        if method == "set":
+            arity(2)
+            if not self._is_integral(arg_types[0]):
+                self._error(f"{target_type.name}.set espera int no índice", node.args[0])
+            check_element(1)
+            node.call_kind = "list_set"
+            node.method_name = "set"
+            return element
+
+        if method == "size":
+            arity(0)
+            node.call_kind = "list_size"
+            node.method_name = "size"
+            return ast.INT
+
+        if method == "isEmpty":
+            arity(0)
+            node.call_kind = "list_is_empty"
+            node.method_name = "isEmpty"
+            return ast.BOOLEAN
+
+        if method == "contains":
+            arity(1)
+            check_element(0)
+            node.call_kind = "list_contains"
+            node.method_name = "contains"
+            return ast.BOOLEAN
+
+        if method == "remove":
+            arity(1)
+            if self._is_integral(arg_types[0]):
+                node.call_kind = "list_remove_at"
+                node.method_name = "removeAt"
+                return element
+            check_element(0)
+            node.call_kind = "list_remove_value"
+            node.method_name = "removeValue"
+            return ast.BOOLEAN
+
+        if method == "clear":
+            arity(0)
+            node.call_kind = "list_clear"
+            node.method_name = "clear"
+            return ast.VOID
+
+        if method == "indexOf":
+            arity(1)
+            check_element(0)
+            node.call_kind = "list_index_of"
+            node.method_name = "indexOf"
+            return ast.INT
+
+        if method == "toString":
+            arity(0)
+            node.call_kind = "list_to_string"
+            node.method_name = "toString"
+            return ast.STRING
+
+        self._error(f"método {target_type.name}.{method} ainda não é suportado", node)
+
+    def _analyze_map_call(
+        self,
+        node: ast.Call,
+        method: str,
+        target_type: ast.JavaType,
+    ) -> ast.JavaType:
+        key_type = self._map_key_type(target_type)
+        value_type = self._map_value_type(target_type)
+        arg_types = [self.analyze_expr(arg) for arg in node.args]
+
+        def arity(expected: int) -> None:
+            if len(arg_types) != expected:
+                self._error(
+                    f"{target_type.name}.{method} espera {expected} argumento(s), "
+                    f"recebeu {len(arg_types)}",
+                    node,
+                )
+
+        def check(index: int, expected: ast.JavaType) -> None:
+            if index >= len(arg_types):
+                return
+            actual = arg_types[index]
+            if expected.name != "Object" and not self._compatible(expected, actual):
+                self._error(
+                    f"{target_type.name}.{method} espera {expected}, recebeu {actual}",
+                    node.args[index],
+                )
+
+        if method == "put":
+            arity(2)
+            check(0, key_type)
+            check(1, value_type)
+            node.call_kind = "map_put"
+            node.method_name = "put"
+            return value_type
+
+        if method == "get":
+            arity(1)
+            check(0, key_type)
+            node.call_kind = "map_get"
+            node.method_name = "get"
+            return value_type
+
+        if method == "containsKey":
+            arity(1)
+            check(0, key_type)
+            node.call_kind = "map_contains_key"
+            node.method_name = "containsKey"
+            return ast.BOOLEAN
+
+        if method == "containsValue":
+            arity(1)
+            check(0, value_type)
+            node.call_kind = "map_contains_value"
+            node.method_name = "containsValue"
+            return ast.BOOLEAN
+
+        if method == "remove":
+            arity(1)
+            check(0, key_type)
+            node.call_kind = "map_remove"
+            node.method_name = "remove"
+            return value_type
+
+        if method == "size":
+            arity(0)
+            node.call_kind = "map_size"
+            node.method_name = "size"
+            return ast.INT
+
+        if method == "isEmpty":
+            arity(0)
+            node.call_kind = "map_is_empty"
+            node.method_name = "isEmpty"
+            return ast.BOOLEAN
+
+        if method == "clear":
+            arity(0)
+            node.call_kind = "map_clear"
+            node.method_name = "clear"
+            return ast.VOID
+
+        if method == "keySet":
+            arity(0)
+            node.call_kind = "map_key_set"
+            node.method_name = "keySet"
+            return ast.JavaType("HashSet", args=(key_type,))
+
+        if method == "values":
+            arity(0)
+            node.call_kind = "map_values"
+            node.method_name = "values"
+            return ast.JavaType("ArrayList", args=(value_type,))
+
+        if method == "toString":
+            arity(0)
+            node.call_kind = "map_to_string"
+            node.method_name = "toString"
+            return ast.STRING
+
+        self._error(f"método {target_type.name}.{method} ainda não é suportado", node)
+
+    def _analyze_set_call(
+        self,
+        node: ast.Call,
+        method: str,
+        target_type: ast.JavaType,
+    ) -> ast.JavaType:
+        element = self._set_element_type(target_type)
+        arg_types = [self.analyze_expr(arg) for arg in node.args]
+
+        def arity(expected: int) -> None:
+            if len(arg_types) != expected:
+                self._error(
+                    f"{target_type.name}.{method} espera {expected} argumento(s), "
+                    f"recebeu {len(arg_types)}",
+                    node,
+                )
+
+        def check(index: int) -> None:
+            if index >= len(arg_types):
+                return
+            actual = arg_types[index]
+            if element.name != "Object" and not self._compatible(element, actual):
+                self._error(
+                    f"{target_type.name}.{method} espera {element}, recebeu {actual}",
+                    node.args[index],
+                )
+
+        if method == "add":
+            arity(1)
+            check(0)
+            node.call_kind = "set_add"
+            node.method_name = "add"
+            return ast.BOOLEAN
+
+        if method == "contains":
+            arity(1)
+            check(0)
+            node.call_kind = "set_contains"
+            node.method_name = "contains"
+            return ast.BOOLEAN
+
+        if method == "remove":
+            arity(1)
+            check(0)
+            node.call_kind = "set_remove"
+            node.method_name = "remove"
+            return ast.BOOLEAN
+
+        if method == "size":
+            arity(0)
+            node.call_kind = "set_size"
+            node.method_name = "size"
+            return ast.INT
+
+        if method == "isEmpty":
+            arity(0)
+            node.call_kind = "set_is_empty"
+            node.method_name = "isEmpty"
+            return ast.BOOLEAN
+
+        if method == "clear":
+            arity(0)
+            node.call_kind = "set_clear"
+            node.method_name = "clear"
+            return ast.VOID
+
+        if method == "toString":
+            arity(0)
+            node.call_kind = "set_to_string"
+            node.method_name = "toString"
+            return ast.STRING
+
+        self._error(f"método {target_type.name}.{method} ainda não é suportado", node)
+
+    def _analyze_exception_call(self, node: ast.Call, method: str) -> ast.JavaType:
+        if node.args:
+            self._error(f"método de exceção '{method}' não espera argumentos", node)
+        returns = {
+            "getMessage": ast.STRING,
+            "getLocalizedMessage": ast.STRING,
+            "getCode": ast.INT,
+            "printStackTrace": ast.VOID,
+            "toString": ast.STRING,
+        }
+        if method not in returns:
+            self._error(f"método de exceção '{method}' ainda não é suportado", node)
+        node.call_kind = "exception_method"
+        node.method_name = method
+        return returns[method]
+
+    def _analyze_scanner_call(self, node: ast.Call, method: str) -> ast.JavaType:
+        if node.args:
+            self._error(f"Scanner.{method} não espera argumentos", node)
+        returns = {
+            "nextInt": ast.INT,
+            "nextDouble": ast.DOUBLE,
+            "next": ast.STRING,
+            "nextLine": ast.STRING,
+            "hasNext": ast.BOOLEAN,
+            "hasNextInt": ast.BOOLEAN,
+            "hasNextDouble": ast.BOOLEAN,
+            "close": ast.VOID,
+        }
+        if method not in returns:
+            self._error(f"método Scanner.{method} ainda não é suportado", node)
+        node.call_kind = "scanner"
+        node.method_name = method
+        return returns[method]
+
     def _check_call_args(
         self,
         name: str,
@@ -985,9 +2041,59 @@ class SemanticAnalyzer:
 
     def _analyze_new_object(self, node: ast.NewObject) -> ast.JavaType:
         class_name = node.class_name
+
+        if class_name in LIST_TYPES:
+            type_args = tuple(self._resolve_type(arg, node) for arg in node.type_args)
+            arg_types = [self.analyze_expr(arg) for arg in node.args]
+            if arg_types and not (
+                len(arg_types) == 1 and self._is_integral(arg_types[0])
+            ):
+                self._error(
+                    f"'{class_name}' espera nenhum argumento ou uma capacidade int",
+                    node,
+                )
+            return ast.JavaType("ArrayList", args=type_args)
+
+        if class_name in MAP_TYPES:
+            type_args = tuple(self._resolve_type(arg, node) for arg in node.type_args)
+            if node.args:
+                self._error(f"'{class_name}' não espera argumentos neste subconjunto", node)
+            return ast.JavaType("HashMap", args=type_args)
+
+        if class_name in SET_TYPES:
+            type_args = tuple(self._resolve_type(arg, node) for arg in node.type_args)
+            if node.args:
+                self._error(f"'{class_name}' não espera argumentos neste subconjunto", node)
+            return ast.JavaType("HashSet", args=type_args)
+
+        if class_name == "Scanner":
+            if len(node.args) > 1:
+                self._error("Scanner espera no máximo um argumento (System.in)", node)
+            if node.args:
+                source = self.analyze_expr(node.args[0])
+                if source.name != "__System_in":
+                    self._error("Scanner espera System.in", node.args[0])
+            return ast.JavaType("Scanner")
+
+        if class_name in EXCEPTION_TYPES:
+            if len(node.args) > 1:
+                self._error(f"'{class_name}' espera no máximo uma mensagem", node)
+            if node.args:
+                message_type = self.analyze_expr(node.args[0])
+                if message_type not in {ast.STRING, ast.INT}:
+                    self._error(
+                        f"'{class_name}' espera String (ou int para código) como argumento",
+                        node.args[0],
+                    )
+            return ast.JavaType(class_name)
+
         if class_name not in self.classes:
             self._error(f"classe '{class_name}' não encontrada", node)
         info = self.classes[class_name]
+        if info.is_interface:
+            self._error(f"não é possível instanciar a interface '{class_name}'", node)
+        if info.is_abstract:
+            self._error(f"não é possível instanciar a classe abstrata '{class_name}'", node)
         arg_types = [self.analyze_expr(arg) for arg in node.args]
 
         if not info.ctors:

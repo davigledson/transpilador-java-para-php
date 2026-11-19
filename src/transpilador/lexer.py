@@ -37,11 +37,17 @@ class JavaLexer:
         "WHILE",
         "FOR",
         "DO",
+        "TRY",
+        "CATCH",
+        "FINALLY",
+        "THROW",
+        "THROWS",
         "RETURN",
         "BREAK",
         "CONTINUE",
         "NEW",
         "THIS",
+        "SUPER",
         "TRUE",
         "FALSE",
         "NULL",
@@ -115,11 +121,17 @@ class JavaLexer:
         "while": "WHILE",
         "for": "FOR",
         "do": "DO",
+        "try": "TRY",
+        "catch": "CATCH",
+        "finally": "FINALLY",
+        "throw": "THROW",
+        "throws": "THROWS",
         "return": "RETURN",
         "break": "BREAK",
         "continue": "CONTINUE",
         "new": "NEW",
         "this": "THIS",
+        "super": "SUPER",
         "true": "TRUE",
         "false": "FALSE",
         "null": "NULL",
@@ -346,6 +358,27 @@ def collect_type_names(source: str) -> set[str]:
     tokens = lexer.tokenize(source)
     names: set[str] = set()
     for index, token in enumerate(tokens[:-1]):
-        if token.type == "CLASS" and tokens[index + 1].type == "ID":
+        if token.type in {"CLASS", "INTERFACE"} and tokens[index + 1].type == "ID":
             names.add(tokens[index + 1].value)
+    # Tipos de biblioteca que o transpilador conhece e traduz para o runtime.
+    names.update(
+        {
+            "ArrayList",
+            "List",
+            "Scanner",
+            "HashMap",
+            "Map",
+            "HashSet",
+            "Set",
+            "Throwable",
+            "Exception",
+            "RuntimeException",
+            "IllegalArgumentException",
+            "IllegalStateException",
+            "ArithmeticException",
+            "NullPointerException",
+            "IndexOutOfBoundsException",
+            "IOException",
+        }
+    )
     return names

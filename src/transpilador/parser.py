@@ -92,15 +92,23 @@ class JavaParser:
         p[0] = p[1]
 
     def p_class_list_many(self, p):
-        "class_list : class_list class_decl"
+        "class_list : class_list top_decl"
         p[0] = p[1] + [p[2]]
 
     def p_class_list_one(self, p):
-        "class_list : class_decl"
+        "class_list : top_decl"
         p[0] = [p[1]]
 
+    def p_top_decl_class(self, p):
+        "top_decl : class_decl"
+        p[0] = p[1]
+
+    def p_top_decl_interface(self, p):
+        "top_decl : interface_decl"
+        p[0] = p[1]
+
     # ------------------------------------------------------------------
-    # Classes
+    # Classes e interfaces
     # ------------------------------------------------------------------
 
     def p_class_decl(self, p):
@@ -112,14 +120,53 @@ class JavaParser:
             members=p[7],
             implements=p[5],
             modifiers=p[1],
+            is_interface=False,
             line=line,
             col=col,
         )
 
-    def p_unsupported_interface(self, p):
-        "class_decl : modifiers INTERFACE TYPEID LBRACE class_body RBRACE"
+    def p_interface_decl(self, p):
+        "interface_decl : modifiers INTERFACE TYPEID extends_opt LBRACE interface_body RBRACE"
         line, col = self._pos(p, 2)
-        raise TranspileError("interfaces ainda não são suportadas nesta versão", line, col)
+        p[0] = ast.ClassDecl(
+            name=p[3],
+            extends=p[4],
+            members=p[6],
+            implements=[],
+            modifiers=p[1],
+            is_interface=True,
+            line=line,
+            col=col,
+        )
+
+    def p_interface_body_many(self, p):
+        "interface_body : interface_body interface_member"
+        p[0] = p[1] + [p[2]]
+
+    def p_interface_body_empty(self, p):
+        "interface_body : empty"
+        p[0] = []
+
+    def p_interface_member(self, p):
+        "interface_member : modifiers type ID LPAREN params_opt RPAREN throws_opt SEMI"
+        line, col = self._pos(p, 2)
+        p[0] = ast.MethodDecl(
+            name=p[3],
+            return_type=p[2],
+            params=p[5],
+            body=None,
+            modifiers=p[1],
+            line=line,
+            col=col,
+        )
+
+    def p_throws_opt(self, p):
+        "throws_opt : THROWS name_list"
+        p[0] = p[2]
+
+    def p_throws_empty(self, p):
+        "throws_opt : empty"
+        p[0] = []
 
     def p_unsupported_enum(self, p):
         "class_decl : modifiers ENUM TYPEID LBRACE class_body RBRACE"
@@ -198,12 +245,12 @@ class JavaParser:
         p[0] = nodes
 
     def p_member_rest_constructor(self, p):
-        "member_rest : TYPEID LPAREN params_opt RPAREN block"
+        "member_rest : TYPEID LPAREN params_opt RPAREN throws_opt block"
         line, col = self._pos(p, 1)
         p[0] = ast.ConstructorDecl(
             name=p[1],
             params=p[3],
-            body=p[5],
+            body=p[6],
             line=line,
             col=col,
         )
@@ -231,8 +278,12 @@ class JavaParser:
             )
 
     def p_member_tail_method(self, p):
-        "member_tail : LPAREN params_opt RPAREN block"
-        p[0] = ("method", p[2], p[4])
+        "member_tail : LPAREN params_opt RPAREN throws_opt block"
+        p[0] = ("method", p[2], p[5])
+
+    def p_member_tail_abstract_method(self, p):
+        "member_tail : LPAREN params_opt RPAREN throws_opt SEMI"
+        p[0] = ("method", p[2], None)
 
     def p_member_tail_field_init(self, p):
         "member_tail : ASSIGN expr SEMI"
@@ -282,13 +333,36 @@ class JavaParser:
         p[0] = ast.JavaType(p[1], 0, line, col)
 
     def p_type_class(self, p):
-        "type : TYPEID"
+        "type : TYPEID generic_args_opt"
         line, col = self._pos(p, 1)
-        p[0] = ast.JavaType(p[1], 0, line, col)
+        p[0] = ast.JavaType(p[1], 0, line, col, tuple(p[2]))
 
     def p_type_array(self, p):
         "type : type LBRACKET RBRACKET"
-        p[0] = ast.JavaType(p[1].name, p[1].dims + 1, p[1].line, p[1].col)
+        p[0] = ast.JavaType(
+            p[1].name,
+            p[1].dims + 1,
+            p[1].line,
+            p[1].col,
+            p[1].args,
+        )
+
+    def p_generic_args_opt(self, p):
+        """generic_args_opt : LT generic_args GT
+                            | LT GT"""
+        p[0] = p[2] if len(p) == 4 else ()
+
+    def p_generic_args_empty(self, p):
+        "generic_args_opt : empty"
+        p[0] = ()
+
+    def p_generic_args_many(self, p):
+        "generic_args : generic_args COMMA type"
+        p[0] = p[1] + (p[3],)
+
+    def p_generic_args_one(self, p):
+        "generic_args : type"
+        p[0] = (p[1],)
 
     # ------------------------------------------------------------------
     # Comandos
@@ -333,6 +407,48 @@ class JavaParser:
         "stmt : DO stmt WHILE LPAREN expr RPAREN SEMI"
         line, col = self._pos(p, 1)
         p[0] = ast.DoWhile(body=p[2], cond=p[5], line=line, col=col)
+
+    def p_stmt_try(self, p):
+        "stmt : TRY block catch_list finally_opt"
+        line, col = self._pos(p, 1)
+        p[0] = ast.Try(
+            body=p[2],
+            catches=p[3],
+            finally_=p[4],
+            line=line,
+            col=col,
+        )
+
+    def p_stmt_try_finally(self, p):
+        "stmt : TRY block FINALLY block"
+        line, col = self._pos(p, 1)
+        p[0] = ast.Try(body=p[2], catches=[], finally_=p[4], line=line, col=col)
+
+    def p_catch_list_many(self, p):
+        "catch_list : catch_list catch_clause"
+        p[0] = p[1] + [p[2]]
+
+    def p_catch_list_one(self, p):
+        "catch_list : catch_clause"
+        p[0] = [p[1]]
+
+    def p_catch_clause(self, p):
+        "catch_clause : CATCH LPAREN type ID RPAREN block"
+        line, col = self._pos(p, 1)
+        p[0] = ast.Catch(type=p[3], name=p[4], body=p[6], line=line, col=col)
+
+    def p_finally_opt(self, p):
+        "finally_opt : FINALLY block"
+        p[0] = p[2]
+
+    def p_finally_empty(self, p):
+        "finally_opt : empty"
+        p[0] = None
+
+    def p_stmt_throw(self, p):
+        "stmt : THROW expr SEMI"
+        line, col = self._pos(p, 1)
+        p[0] = ast.Throw(value=p[2], line=line, col=col)
 
     def p_stmt_for(self, p):
         "stmt : FOR LPAREN for_header RPAREN stmt"
@@ -626,13 +742,24 @@ class JavaParser:
         line, col = self._pos(p, 1)
         p[0] = ast.This(line=line, col=col)
 
+    def p_primary_super(self, p):
+        "primary : SUPER"
+        line, col = self._pos(p, 1)
+        p[0] = ast.Super(line=line, col=col)
+
     def p_primary_new_object(self, p):
-        "primary : NEW class_ref LPAREN args_opt RPAREN"
+        "primary : NEW class_ref generic_args_opt LPAREN args_opt RPAREN"
         line, col = self._pos(p, 2)
-        p[0] = ast.NewObject(class_name=p[2], args=p[4], line=line, col=col)
+        p[0] = ast.NewObject(
+            class_name=p[2],
+            args=p[5],
+            type_args=tuple(p[3]),
+            line=line,
+            col=col,
+        )
 
     def p_primary_new_array(self, p):
-        "primary : NEW type LBRACKET expr RBRACKET"
+        "primary : NEW array_type LBRACKET expr RBRACKET"
         line, col = self._pos(p, 2)
         p[0] = ast.NewArray(
             element_type=p[2],
@@ -642,18 +769,42 @@ class JavaParser:
             col=col,
         )
 
+    def p_array_type_primitive(self, p):
+        """array_type : INT
+                      | DOUBLE
+                      | BOOLEAN
+                      | CHAR
+                      | STRING
+                      | LONG
+                      | FLOAT
+                      | BYTE
+                      | SHORT"""
+        line, col = self._pos(p, 1)
+        p[0] = ast.JavaType(p[1], 0, line, col)
+
+    def p_array_type_class(self, p):
+        "array_type : class_ref"
+        line, col = self._pos(p, 1)
+        p[0] = ast.JavaType(p[1], 0, line, col)
+
     def p_primary_group(self, p):
         "primary : LPAREN expr RPAREN"
         p[0] = p[2]
 
-    def p_primary_string_type(self, p):
-        "primary : STRING"
+    def p_primary_string_static_ref(self, p):
+        "primary : STRING DOT ID"
         line, col = self._pos(p, 1)
-        p[0] = ast.Name(id="String", line=line, col=col)
+        target = ast.Name(id="String", line=line, col=col)
+        p[0] = ast.FieldAccess(target=target, name=p[3], line=line, col=col)
+
+    def p_primary_typeid_static_ref(self, p):
+        "primary : TYPEID DOT ID"
+        line, col = self._pos(p, 1)
+        target = ast.Name(id=p[1], line=line, col=col)
+        p[0] = ast.FieldAccess(target=target, name=p[3], line=line, col=col)
 
     def p_primary_id(self, p):
-        """primary : ID
-                   | TYPEID"""
+        "primary : ID"
         line, col = self._pos(p, 1)
         p[0] = ast.Name(id=p[1], line=line, col=col)
 

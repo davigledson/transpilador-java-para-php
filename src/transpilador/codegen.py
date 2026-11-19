@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from . import ast
 from .erros import TranspileError
-from .semantico import ClassInfo
+from .semantico import EXCEPTION_TYPES, ClassInfo
 
 
 TYPE_MAP = {
@@ -14,6 +14,32 @@ TYPE_MAP = {
     "char": "string",
     "String": "string",
     "void": "void",
+    "ArrayList": "JArrayList",
+    "List": "JArrayList",
+    "Scanner": "JScanner",
+    "HashMap": "JHashMap",
+    "Map": "JHashMap",
+    "HashSet": "JHashSet",
+    "Set": "JHashSet",
+    "Throwable": "\\Throwable",
+    "Exception": "\\Exception",
+    "RuntimeException": "\\RuntimeException",
+    "IllegalArgumentException": "\\InvalidArgumentException",
+    "IllegalStateException": "\\RuntimeException",
+    "ArithmeticException": "\\DivisionByZeroError",
+    "NullPointerException": "\\Error",
+    "IndexOutOfBoundsException": "\\OutOfRangeException",
+    "IOException": "\\RuntimeException",
+}
+
+LIBRARY_TYPES = {
+    "ArrayList",
+    "List",
+    "Scanner",
+    "HashMap",
+    "Map",
+    "HashSet",
+    "Set",
 }
 
 
@@ -36,7 +62,7 @@ class PhpEmitter:
         self.line("require_once __DIR__ . '/runtime/bootstrap.php';")
         self.line()
 
-        for cls in program.classes:
+        for cls in self.ordered_classes(program.classes):
             self.emit_class(cls)
 
         main_class = next(
@@ -47,6 +73,35 @@ class PhpEmitter:
             self.emit_entrypoint(main_class)
 
         return "\n".join(self.lines).rstrip() + "\n"
+
+    def ordered_classes(self, classes: list[ast.ClassDecl]) -> list[ast.ClassDecl]:
+        """Emite dependências antes: pai/interface antes do filho.
+
+        O PHP declara classes/interfaces na ordem do arquivo; inverter a ordem
+        pode gerar "class not found" em tempo de carga.
+        """
+
+        by_name = {cls.name: cls for cls in classes}
+        result: list[ast.ClassDecl] = []
+        seen: set[str] = set()
+        visiting: set[str] = set()
+
+        def visit(cls: ast.ClassDecl) -> None:
+            if cls.name in seen or cls.name in visiting:
+                return
+            visiting.add(cls.name)
+            if cls.extends and cls.extends in by_name:
+                visit(by_name[cls.extends])
+            for iface in cls.implements:
+                if iface in by_name:
+                    visit(by_name[iface])
+            visiting.remove(cls.name)
+            seen.add(cls.name)
+            result.append(cls)
+
+        for cls in classes:
+            visit(cls)
+        return result
 
     # ------------------------------------------------------------------
     # Saída e indentação
@@ -79,8 +134,17 @@ class PhpEmitter:
         if not nullable or base in {"void", "mixed"}:
             return base
 
-        is_ref = t.dims > 0 or t.name == "String" or t.name in self.classes
+        is_ref = (
+            t.dims > 0
+            or t.name == "String"
+            or t.name in self.classes
+            or t.name in LIBRARY_TYPES
+            or t.name in EXCEPTION_TYPES
+        )
         return f"?{base}" if is_ref else base
+
+    def php_exception_name(self, name: str) -> str:
+        return TYPE_MAP.get(name, "\\" + name)
 
     def default_value(self, t: ast.JavaType) -> str:
         if t.dims > 0:
@@ -101,7 +165,18 @@ class PhpEmitter:
 
     def emit_class(self, cls: ast.ClassDecl) -> None:
         self.current_class = cls.name
-        self.line(f"class {cls.name}")
+        if cls.is_interface:
+            kind = "interface"
+        elif "abstract" in cls.modifiers:
+            kind = "abstract class"
+        else:
+            kind = "class"
+        extends_name = cls.extends
+        if extends_name in EXCEPTION_TYPES:
+            extends_name = self.php_exception_name(extends_name)
+        extends = f" extends {extends_name}" if extends_name else ""
+        implements = f" implements {', '.join(cls.implements)}" if cls.implements else ""
+        self.line(f"{kind} {cls.name}{extends}{implements}")
         self.line("{")
         self.indent += 1
 
@@ -145,9 +220,42 @@ class PhpEmitter:
         self.line(f"{visibility} function __construct({params})")
         self.line("{")
         self.indent += 1
-        self.emit_block_contents(ctor.body)
+        if self.current_class is not None:
+            info = self.classes[self.current_class]
+            has_explicit_super = any(
+                isinstance(stmt, ast.ExprStmt)
+                and isinstance(stmt.expr, ast.Call)
+                and isinstance(stmt.expr.callee, ast.Super)
+                for stmt in ctor.body.stmts
+            )
+            if (
+                not has_explicit_super
+                and info.parent is not None
+                and self.has_any_constructor(info.parent)
+            ):
+                self.line("parent::__construct();")
+            for stmt in ctor.body.stmts:
+                if (
+                    self.is_super_ctor_stmt(stmt)
+                    and info.parent is not None
+                    and not self.has_any_constructor(info.parent)
+                ):
+                    # super() é válido em Java mesmo quando o pai tem o
+                    # construtor implícito, mas o PHP não tem __construct
+                    # para chamar.
+                    continue
+                self.emit_stmt(stmt)
+        else:
+            self.emit_block_contents(ctor.body)
         self.indent -= 1
         self.line("}")
+
+    def is_super_ctor_stmt(self, stmt: ast.Node) -> bool:
+        return (
+            isinstance(stmt, ast.ExprStmt)
+            and isinstance(stmt.expr, ast.Call)
+            and isinstance(stmt.expr.callee, ast.Super)
+        )
 
     def emit_method(self, method: ast.MethodDecl) -> None:
         if "private" in method.modifiers:
@@ -162,6 +270,19 @@ class PhpEmitter:
             f"{self.php_type(param.type)} ${param.name}" for param in method.params
         )
         return_type = self.php_type(method.return_type, nullable=True)
+
+        is_interface = (
+            self.current_class is not None
+            and self.classes[self.current_class].is_interface
+        )
+        if method.body is None:
+            if is_interface:
+                self.line(f"public function {method.name}({params}): {return_type};")
+            else:
+                self.line(f"abstract public function {method.name}({params}): {return_type};")
+            self.line()
+            return
+
         self.line(f"{visibility} {static}function {method.name}({params}): {return_type}")
         self.line("{")
         self.indent += 1
@@ -189,6 +310,21 @@ class PhpEmitter:
         self.line(f"{cls.name}::main(array_slice($argv, 1));")
         self.indent -= 1
         self.line("}")
+
+    def has_any_constructor(self, class_name: str) -> bool:
+        if class_name in EXCEPTION_TYPES:
+            return True
+        current: str | None = class_name
+        seen: set[str] = set()
+        while current and current not in seen:
+            seen.add(current)
+            info = self.classes.get(current)
+            if info is None:
+                return False
+            if info.ctors:
+                return True
+            current = info.parent
+        return False
 
     # ------------------------------------------------------------------
     # Comandos
@@ -233,6 +369,25 @@ class PhpEmitter:
             self.emit_nested_body(node.body)
             self.indent -= 1
             self.line(f"}} while ({self.emit_expr(node.cond)});")
+        elif isinstance(node, ast.Try):
+            self.line("try {")
+            self.indent += 1
+            self.emit_block_contents(node.body)
+            self.indent -= 1
+            for catch in node.catches:
+                catch_type = self.php_exception_name(catch.type.name)
+                self.line(f"}} catch ({catch_type} ${catch.name}) {{")
+                self.indent += 1
+                self.emit_block_contents(catch.body)
+                self.indent -= 1
+            if node.finally_ is not None:
+                self.line("} finally {")
+                self.indent += 1
+                self.emit_block_contents(node.finally_)
+                self.indent -= 1
+            self.line("}")
+        elif isinstance(node, ast.Throw):
+            self.line(f"throw {self.emit_expr(node.value)};")
         elif isinstance(node, ast.For):
             init = self.emit_for_init(node.init)
             cond = self.emit_expr(node.cond) if node.cond is not None else "true"
@@ -288,11 +443,24 @@ class PhpEmitter:
             return self.emit_name(node)
         if isinstance(node, ast.This):
             return "$this"
+        if isinstance(node, ast.Super):
+            self.error("'super' só pode ser usado em super(...) ou super.metodo(...)", node)
         if isinstance(node, ast.FieldAccess):
             return self.emit_field_access(node)
         if isinstance(node, ast.Call):
             return self.emit_call(node)
         if isinstance(node, ast.NewObject):
+            if node.class_name in EXCEPTION_TYPES:
+                args = ", ".join(self.emit_expr(arg) for arg in node.args)
+                return f"new {self.php_exception_name(node.class_name)}({args})"
+            if node.class_name in {"ArrayList", "List"}:
+                return "new JArrayList()"
+            if node.class_name in {"HashMap", "Map"}:
+                return "new JHashMap()"
+            if node.class_name in {"HashSet", "Set"}:
+                return "new JHashSet()"
+            if node.class_name == "Scanner":
+                return "new JScanner()"
             args = ", ".join(self.emit_expr(arg) for arg in node.args)
             return f"new {node.class_name}({args})"
         if isinstance(node, ast.NewArray):
@@ -371,6 +539,10 @@ class PhpEmitter:
             return f"count({self.emit_expr(node.target)})"
         if getattr(node, "php_constant", None):
             return node.php_constant
+        if isinstance(node.target, ast.Super):
+            if getattr(node, "is_static_field", False):
+                return f"parent::${node.name}"
+            return f"$this->{node.name}"
         if getattr(node, "is_static_field", False):
             owner = getattr(node, "owner_class", None)
             owner_ref = "self" if owner == self.current_class else owner
@@ -386,6 +558,28 @@ class PhpEmitter:
 
         if kind == "system_out":
             return f"JSystem::{method}({args})"
+        if kind == "exception_method":
+            target = self.emit_expr(callee.target)
+            t = self.wrap_member_target(target)
+            if method in {"getMessage", "getLocalizedMessage"}:
+                return f"{t}->getMessage()"
+            if method == "getCode":
+                return f"{t}->getCode()"
+            if method == "printStackTrace":
+                return f"fwrite(STDERR, (string) {t} . PHP_EOL)"
+            if method == "toString":
+                return f"(string) {t}"
+            self.error(f"método de exceção '{method}' não suportado no gerador", node)
+        if kind is not None and kind.startswith(("list_", "map_", "set_")):
+            target = self.emit_expr(callee.target)
+            return f"{self.wrap_member_target(target)}->{method}({args})"
+        if kind == "scanner":
+            target = self.emit_expr(callee.target)
+            return f"{self.wrap_member_target(target)}->{method}({args})"
+        if kind == "super_ctor":
+            return f"parent::__construct({args})"
+        if kind == "super_method":
+            return f"parent::{method}({args})"
         if kind == "system_exit":
             return f"exit({args})"
         if kind == "string_valueof":
