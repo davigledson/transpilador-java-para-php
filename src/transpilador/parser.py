@@ -6,7 +6,7 @@ import ply.yacc as yacc
 
 from . import ast
 from .erros import TranspileError
-from .lexer import JavaLexer
+from .lexer import JavaLexer, strip_annotation_arguments
 
 
 class JavaParser:
@@ -47,11 +47,41 @@ class JavaParser:
         return tok.lexpos - last_nl
 
     def parse(self, source: str, lexer: JavaLexer) -> ast.Program:
+        self._validate_unsupported(source, lexer)
         lexer.lexer.lineno = 1
-        result = self.parser.parse(source, lexer=lexer.lexer, tracking=True)
+        result = self.parser.parse(
+            strip_annotation_arguments(source),
+            lexer=lexer.lexer,
+            tracking=True,
+        )
         if result is None:
             raise TranspileError("não foi possível gerar a AST")
         return result
+
+    def _validate_unsupported(self, source: str, lexer: JavaLexer) -> None:
+        tokens = lexer.tokenize(source)
+        data = strip_annotation_arguments(source)
+        for index, token in enumerate(tokens):
+            if token.type == "RECORD":
+                raise TranspileError(
+                    "record ainda não é suportado; use uma classe comum",
+                    token.lineno,
+                    self._token_column(data, token.lexpos),
+                )
+            if (
+                token.type == "AT"
+                and index + 1 < len(tokens)
+                and tokens[index + 1].type == "INTERFACE"
+            ):
+                raise TranspileError(
+                    "@interface (declaração de anotação) ainda não é suportado",
+                    token.lineno,
+                    self._token_column(data, token.lexpos),
+                )
+
+    def _token_column(self, data: str, lexpos: int) -> int:
+        last_nl = data.rfind("\n", 0, lexpos)
+        return lexpos - last_nl
 
     # ------------------------------------------------------------------
     # Estrutura geral
@@ -60,7 +90,16 @@ class JavaParser:
     def p_program(self, p):
         "program : package_opt imports_opt class_list"
         line, col = self._pos(p, 3)
-        p[0] = ast.Program(classes=p[3], line=line, col=col)
+        for cls in p[3]:
+            cls.package = p[1]
+            cls.imports = list(p[2])
+        p[0] = ast.Program(
+            classes=p[3],
+            package=p[1],
+            imports=list(p[2]),
+            line=line,
+            col=col,
+        )
 
     def p_package_opt(self, p):
         "package_opt : PACKAGE dotted_name SEMI"
@@ -106,6 +145,28 @@ class JavaParser:
     def p_top_decl_interface(self, p):
         "top_decl : interface_decl"
         p[0] = p[1]
+
+    def p_top_decl_enum(self, p):
+        "top_decl : enum_decl"
+        p[0] = p[1]
+
+    def p_top_decl_record(self, p):
+        "top_decl : modifiers RECORD"
+        line, col = self._pos(p, 2)
+        raise TranspileError(
+            "record ainda não é suportado; use uma classe comum",
+            line,
+            col,
+        )
+
+    def p_top_decl_interface_annotation(self, p):
+        "top_decl : modifiers AT INTERFACE"
+        line, col = self._pos(p, 2)
+        raise TranspileError(
+            "@interface (declaração de anotação) ainda não é suportado",
+            line,
+            col,
+        )
 
     # ------------------------------------------------------------------
     # Classes e interfaces
@@ -168,10 +229,45 @@ class JavaParser:
         "throws_opt : empty"
         p[0] = []
 
-    def p_unsupported_enum(self, p):
-        "class_decl : modifiers ENUM TYPEID LBRACE class_body RBRACE"
+    def p_enum_decl(self, p):
+        "enum_decl : modifiers ENUM TYPEID LBRACE enum_constants_opt RBRACE"
         line, col = self._pos(p, 2)
-        raise TranspileError("enums ainda não são suportados nesta versão", line, col)
+        p[0] = ast.ClassDecl(
+            name=p[3],
+            extends=None,
+            members=[],
+            implements=[],
+            modifiers=p[1],
+            is_enum=True,
+            enum_constants=p[5],
+            line=line,
+            col=col,
+        )
+
+    def p_enum_constants_opt(self, p):
+        "enum_constants_opt : enum_constants"
+        p[0] = p[1]
+
+    def p_enum_constants_empty(self, p):
+        "enum_constants_opt : empty"
+        p[0] = []
+
+    def p_enum_constants_many(self, p):
+        "enum_constants : enum_constants COMMA enum_constant"
+        p[0] = p[1] + [p[3]]
+
+    def p_enum_constants_trailing(self, p):
+        "enum_constants : enum_constants COMMA"
+        p[0] = p[1]
+
+    def p_enum_constants_one(self, p):
+        "enum_constants : enum_constant"
+        p[0] = [p[1]]
+
+    def p_enum_constant(self, p):
+        """enum_constant : ID
+                         | TYPEID"""
+        p[0] = p[1]
 
     def p_extends_opt(self, p):
         "extends_opt : EXTENDS class_ref"
@@ -224,6 +320,15 @@ class JavaParser:
                     | ABSTRACT
                     | annotation"""
         p[0] = p[1]
+
+    def p_modifier_sealed(self, p):
+        "modifier : SEALED"
+        line, col = self._pos(p, 1)
+        raise TranspileError(
+            "sealed classes ainda não são suportadas",
+            line,
+            col,
+        )
 
     def p_annotation(self, p):
         "annotation : AT ID"
@@ -424,6 +529,15 @@ class JavaParser:
         line, col = self._pos(p, 1)
         p[0] = ast.Try(body=p[2], catches=[], finally_=p[4], line=line, col=col)
 
+    def p_stmt_try_resources(self, p):
+        "stmt : TRY LPAREN"
+        line, col = self._pos(p, 1)
+        raise TranspileError(
+            "try-with-resources ainda não é suportado",
+            line,
+            col,
+        )
+
     def p_catch_list_many(self, p):
         "catch_list : catch_list catch_clause"
         p[0] = p[1] + [p[2]]
@@ -437,6 +551,15 @@ class JavaParser:
         line, col = self._pos(p, 1)
         p[0] = ast.Catch(type=p[3], name=p[4], body=p[6], line=line, col=col)
 
+    def p_catch_clause_multi(self, p):
+        "catch_clause : CATCH LPAREN type BITOR"
+        line, col = self._pos(p, 1)
+        raise TranspileError(
+            "multi-catch (catch (A | B e)) ainda não é suportado",
+            line,
+            col,
+        )
+
     def p_finally_opt(self, p):
         "finally_opt : FINALLY block"
         p[0] = p[2]
@@ -449,6 +572,56 @@ class JavaParser:
         "stmt : THROW expr SEMI"
         line, col = self._pos(p, 1)
         p[0] = ast.Throw(value=p[2], line=line, col=col)
+
+    def p_stmt_yield(self, p):
+        "stmt : YIELD expr SEMI"
+        line, col = self._pos(p, 1)
+        raise TranspileError(
+            "yield ainda não é suportado",
+            line,
+            col,
+        )
+
+    def p_stmt_switch(self, p):
+        "stmt : SWITCH LPAREN expr RPAREN LBRACE switch_body RBRACE"
+        line, col = self._pos(p, 1)
+        p[0] = ast.Switch(expr=p[3], cases=p[6], line=line, col=col)
+
+    def p_switch_body_many(self, p):
+        "switch_body : switch_body switch_clause"
+        p[0] = p[1] + [p[2]]
+
+    def p_switch_body_empty(self, p):
+        "switch_body : empty"
+        p[0] = []
+
+    def p_switch_clause_case(self, p):
+        "switch_clause : CASE expr COLON stmt_list"
+        line, col = self._pos(p, 1)
+        p[0] = ast.SwitchCase(value=p[2], stmts=p[4], line=line, col=col)
+
+    def p_switch_clause_default(self, p):
+        "switch_clause : DEFAULT COLON stmt_list"
+        line, col = self._pos(p, 1)
+        p[0] = ast.SwitchCase(value=None, stmts=p[3], line=line, col=col)
+
+    def p_switch_clause_case_arrow(self, p):
+        "switch_clause : CASE expr ARROW stmt"
+        line, col = self._pos(p, 1)
+        raise TranspileError(
+            "switch arrow (case ... ->) ainda não é suportado",
+            line,
+            col,
+        )
+
+    def p_switch_clause_default_arrow(self, p):
+        "switch_clause : DEFAULT ARROW stmt"
+        line, col = self._pos(p, 1)
+        raise TranspileError(
+            "switch arrow (default ->) ainda não é suportado",
+            line,
+            col,
+        )
 
     def p_stmt_for(self, p):
         "stmt : FOR LPAREN for_header RPAREN stmt"
@@ -480,6 +653,10 @@ class JavaParser:
     def p_for_header_each(self, p):
         "for_header : type ID COLON expr"
         p[0] = ("each", p[1], p[2], p[4])
+
+    def p_for_header_each_var(self, p):
+        "for_header : VAR ID COLON expr"
+        p[0] = ("each", None, p[2], p[4])
 
     def p_for_init_local(self, p):
         "for_init : local_decl"
@@ -549,6 +726,11 @@ class JavaParser:
         line, col = self._pos(p, 2)
         p[0] = ast.LocalVarDecl(name=p[2], type=p[1], init=None, line=line, col=col)
 
+    def p_local_decl_var(self, p):
+        "local_decl : VAR ID ASSIGN expr"
+        line, col = self._pos(p, 2)
+        p[0] = ast.LocalVarDecl(name=p[2], type=None, init=p[4], line=line, col=col)
+
     # ------------------------------------------------------------------
     # Expressões
     # ------------------------------------------------------------------
@@ -615,6 +797,11 @@ class JavaParser:
         line, col = self._pos(p, 1)
         p[0] = ast.Binary(op=p[2], left=p[1], right=p[3], line=line, col=col)
 
+    def p_relational_instanceof(self, p):
+        "relational : relational INSTANCEOF type"
+        line, col = self._pos(p, 1)
+        p[0] = ast.InstanceOf(expr=p[1], type=p[3], line=line, col=col)
+
     def p_relational(self, p):
         "relational : additive"
         p[0] = p[1]
@@ -652,6 +839,11 @@ class JavaParser:
         "unary : MINUS unary %prec UMINUS"
         line, col = self._pos(p, 1)
         p[0] = ast.Unary(op="-", operand=p[2], prefix=True, line=line, col=col)
+
+    def p_unary_cast(self, p):
+        "unary : LPAREN type RPAREN unary"
+        line, col = self._pos(p, 1)
+        p[0] = ast.Cast(type=p[2], expr=p[4], line=line, col=col)
 
     def p_unary_postfix(self, p):
         "unary : postfix"
@@ -747,6 +939,42 @@ class JavaParser:
         line, col = self._pos(p, 1)
         p[0] = ast.Super(line=line, col=col)
 
+    def p_primary_lambda_single(self, p):
+        "primary : ID ARROW lambda_body"
+        line, col = self._pos(p, 1)
+        p[0] = ast.Lambda(params=[p[1]], body=p[3], line=line, col=col)
+
+    def p_primary_lambda_empty(self, p):
+        "primary : LPAREN RPAREN ARROW lambda_body"
+        line, col = self._pos(p, 1)
+        p[0] = ast.Lambda(params=[], body=p[4], line=line, col=col)
+
+    def p_primary_lambda_multi(self, p):
+        "primary : LPAREN ID COMMA ID lambda_params_tail RPAREN ARROW lambda_body"
+        line, col = self._pos(p, 1)
+        p[0] = ast.Lambda(
+            params=[p[2], p[4], *p[5]],
+            body=p[8],
+            line=line,
+            col=col,
+        )
+
+    def p_lambda_params_tail_many(self, p):
+        "lambda_params_tail : lambda_params_tail COMMA ID"
+        p[0] = p[1] + [p[3]]
+
+    def p_lambda_params_tail_empty(self, p):
+        "lambda_params_tail : empty"
+        p[0] = []
+
+    def p_lambda_body_expr(self, p):
+        "lambda_body : expr"
+        p[0] = p[1]
+
+    def p_lambda_body_block(self, p):
+        "lambda_body : block"
+        p[0] = p[1]
+
     def p_primary_new_object(self, p):
         "primary : NEW class_ref generic_args_opt LPAREN args_opt RPAREN"
         line, col = self._pos(p, 2)
@@ -791,17 +1019,79 @@ class JavaParser:
         "primary : LPAREN expr RPAREN"
         p[0] = p[2]
 
-    def p_primary_string_static_ref(self, p):
-        "primary : STRING DOT ID"
+    def p_primary_typeid_tail(self, p):
+        "primary : TYPEID typeid_tail"
         line, col = self._pos(p, 1)
-        target = ast.Name(id="String", line=line, col=col)
-        p[0] = ast.FieldAccess(target=target, name=p[3], line=line, col=col)
+        kind, value = p[2]
+        name = ast.Name(id=p[1], line=line, col=col)
+        if kind == "class":
+            p[0] = ast.ClassLiteral(
+                type=ast.JavaType(p[1], 0, line, col),
+                line=line,
+                col=col,
+            )
+        else:
+            p[0] = ast.FieldAccess(target=name, name=value, line=line, col=col)
 
-    def p_primary_typeid_static_ref(self, p):
-        "primary : TYPEID DOT ID"
+    def p_typeid_tail_class(self, p):
+        "typeid_tail : DOT CLASS"
+        p[0] = ("class", None)
+
+    def p_typeid_tail_id(self, p):
+        "typeid_tail : DOT ID"
+        p[0] = ("id", p[2])
+
+    def p_primary_string_tail(self, p):
+        "primary : STRING string_tail"
         line, col = self._pos(p, 1)
-        target = ast.Name(id=p[1], line=line, col=col)
-        p[0] = ast.FieldAccess(target=target, name=p[3], line=line, col=col)
+        kind, value = p[2]
+        if kind == "class":
+            p[0] = ast.ClassLiteral(
+                type=ast.JavaType("String", 0, line, col),
+                line=line,
+                col=col,
+            )
+        else:
+            target = ast.Name(id="String", line=line, col=col)
+            p[0] = ast.FieldAccess(target=target, name=value, line=line, col=col)
+
+    def p_string_tail_class(self, p):
+        "string_tail : DOT CLASS"
+        p[0] = ("class", None)
+
+    def p_string_tail_id(self, p):
+        "string_tail : DOT ID"
+        p[0] = ("id", p[2])
+
+    def p_primary_primitive_class(self, p):
+        "primary : primitive DOT CLASS"
+        line, col = self._pos(p, 1)
+        p[0] = ast.ClassLiteral(
+            type=ast.JavaType(p[1], 0, line, col),
+            line=line,
+            col=col,
+        )
+
+    def p_primitive(self, p):
+        """primitive : INT
+                     | DOUBLE
+                     | BOOLEAN
+                     | CHAR
+                     | VOID
+                     | LONG
+                     | FLOAT
+                     | BYTE
+                     | SHORT"""
+        p[0] = p[1]
+
+    def p_primary_switch(self, p):
+        "primary : SWITCH"
+        line, col = self._pos(p, 1)
+        raise TranspileError(
+            "switch expression ainda não é suportado",
+            line,
+            col,
+        )
 
     def p_primary_id(self, p):
         "primary : ID"

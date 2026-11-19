@@ -18,10 +18,22 @@ from .erros import TranspileError
 
 PRIMITIVES = {"int", "double", "boolean", "char"}
 BUILTIN_CLASSES = {"System", "Math", "Integer", "Double", "Boolean", "Character"}
-LIBRARY_TYPES = {"ArrayList", "List", "Scanner", "HashMap", "Map", "HashSet", "Set"}
+LIBRARY_TYPES = {
+    "ArrayList",
+    "List",
+    "Scanner",
+    "HashMap",
+    "Map",
+    "HashSet",
+    "Set",
+    "Stream",
+    "Class",
+}
 LIST_TYPES = {"ArrayList", "List"}
 MAP_TYPES = {"HashMap", "Map"}
 SET_TYPES = {"HashSet", "Set"}
+STREAM_TYPES = {"Stream"}
+CLASS_TYPES = {"Class"}
 EXCEPTION_TYPES = {
     "Throwable",
     "Exception",
@@ -86,6 +98,10 @@ class ClassInfo:
     has_main: bool = False
     is_interface: bool = False
     is_abstract: bool = False
+    is_enum: bool = False
+    enum_constants: list[str] = field(default_factory=list)
+    package: str | None = None
+    qualified_name: str = ""
 
 
 class SemanticAnalyzer:
@@ -98,6 +114,7 @@ class SemanticAnalyzer:
         self.current_static = False
         self.current_return_type: ast.JavaType | None = None
         self.loop_depth = 0
+        self.switch_depth = 0
         self.in_constructor = False
 
         self.scopes: list[dict[str, ast.JavaType]] = []
@@ -126,6 +143,7 @@ class SemanticAnalyzer:
             message,
             getattr(node, "line", 0),
             getattr(node, "col", 0),
+            getattr(node, "source_file", ""),
         )
 
     def _norm(self, t: ast.JavaType) -> ast.JavaType:
@@ -146,12 +164,14 @@ class SemanticAnalyzer:
                 self._error("void não pode ter argumentos genéricos nem dimensões", node)
             return t
 
-        if t.args and t.name not in (LIST_TYPES | MAP_TYPES | SET_TYPES):
+        if t.args and t.name not in (
+            LIST_TYPES | MAP_TYPES | SET_TYPES | STREAM_TYPES | CLASS_TYPES
+        ):
             self._error(
                 f"o tipo '{t.name}' não aceita argumentos genéricos nesta versão",
                 node,
             )
-        if t.name in LIST_TYPES | SET_TYPES:
+        if t.name in LIST_TYPES | SET_TYPES | STREAM_TYPES | CLASS_TYPES:
             if len(t.args) > 1:
                 self._error(f"'{t.name}' espera no máximo um argumento genérico", node)
             for arg in t.args:
@@ -266,6 +286,22 @@ class SemanticAnalyzer:
     def _is_set_type(self, t: ast.JavaType) -> bool:
         return t.dims == 0 and t.name in SET_TYPES
 
+    def _is_enum_type(self, t: ast.JavaType) -> bool:
+        return (
+            t.dims == 0
+            and t.name in self.classes
+            and self.classes[t.name].is_enum
+        )
+
+    def _is_stream_type(self, t: ast.JavaType) -> bool:
+        return t.dims == 0 and t.name in STREAM_TYPES
+
+    def _stream_element_type(self, t: ast.JavaType) -> ast.JavaType:
+        return t.args[0] if t.args else ast.JavaType("Object")
+
+    def _is_class_type(self, t: ast.JavaType) -> bool:
+        return t.dims == 0 and t.name in CLASS_TYPES
+
     def _map_key_type(self, t: ast.JavaType) -> ast.JavaType:
         return t.args[0] if len(t.args) > 0 else ast.JavaType("Object")
 
@@ -292,6 +328,14 @@ class SemanticAnalyzer:
                 return True
             return target.args == source.args
         if self._is_set_type(target) and self._is_set_type(source):
+            if not target.args or not source.args:
+                return True
+            return target.args == source.args
+        if self._is_stream_type(target) and self._is_stream_type(source):
+            if not target.args or not source.args:
+                return True
+            return target.args == source.args
+        if self._is_class_type(target) and self._is_class_type(source):
             if not target.args or not source.args:
                 return True
             return target.args == source.args
@@ -527,7 +571,7 @@ class SemanticAnalyzer:
             )
 
     def _check_implementation(self, info: ClassInfo) -> None:
-        if info.is_interface:
+        if info.is_interface or info.is_enum:
             return
 
         required: dict[str, tuple[MethodInfo, str]] = {}
@@ -576,12 +620,21 @@ class SemanticAnalyzer:
         if cls.name in self.classes:
             self._error(f"classe '{cls.name}' já declarada", cls)
         is_interface = cls.is_interface
-        is_abstract = is_interface or ("abstract" in cls.modifiers)
+        is_enum = cls.is_enum
+        if is_enum and (cls.extends or cls.implements):
+            self._error("enum não pode usar extends/implements nesta versão", cls)
+        if is_enum and "abstract" in cls.modifiers:
+            self._error("enum não pode ser abstract", cls)
+        if is_enum and len(set(cls.enum_constants)) != len(cls.enum_constants):
+            self._error("constante de enum duplicada", cls)
+        is_abstract = is_interface or (not is_enum and "abstract" in cls.modifiers)
         if is_abstract and "final" in cls.modifiers:
             self._error(
                 f"'{cls.name}' não pode ser final e abstract ao mesmo tempo",
                 cls,
             )
+        package = cls.package or None
+        qualified_name = f"{package}.{cls.name}" if package else cls.name
         self.classes[cls.name] = ClassInfo(
             name=cls.name,
             parent=cls.extends,
@@ -589,6 +642,10 @@ class SemanticAnalyzer:
             node=cls,
             is_interface=is_interface,
             is_abstract=is_abstract,
+            is_enum=is_enum,
+            enum_constants=list(cls.enum_constants),
+            package=package,
+            qualified_name=qualified_name,
         )
 
     def _validate_hierarchy(self) -> None:
@@ -657,6 +714,14 @@ class SemanticAnalyzer:
 
     def _declare_members(self, cls: ast.ClassDecl) -> None:
         info = self.classes[cls.name]
+
+        if info.is_enum:
+            if cls.members:
+                self._error(
+                    "enum com campos/métodos ainda não é suportado",
+                    cls.members[0],
+                )
+            return
 
         for member in cls.members:
             if isinstance(member, ast.FieldDecl):
@@ -773,6 +838,8 @@ class SemanticAnalyzer:
 
     def _check_class(self, cls: ast.ClassDecl) -> None:
         info = self.classes[cls.name]
+        if info.is_enum:
+            return
         self.current_class = info
         self.current_method = None
         self.current_return_type = None
@@ -904,7 +971,7 @@ class SemanticAnalyzer:
 
     def _check_mains(self) -> None:
         for info in self.classes.values():
-            if info.is_interface:
+            if info.is_interface or info.is_enum:
                 continue
             if "main" not in info.methods:
                 continue
@@ -933,13 +1000,27 @@ class SemanticAnalyzer:
                 self._check_stmt(stmt)
             self._pop_scope()
         elif isinstance(node, ast.LocalVarDecl):
-            declared = self._resolve_type(node.type, node)
-            init_type = self.analyze_expr(node.init) if node.init is not None else None
-            if init_type is not None and not self._compatible(declared, init_type):
-                self._error(
-                    f"não é possível inicializar {declared} com {init_type}",
-                    node.init,
-                )
+            if node.type is None:
+                if node.init is None:
+                    self._error(
+                        "var exige um inicializador para inferir o tipo",
+                        node,
+                    )
+                declared = self.analyze_expr(node.init)
+                if self._is_null(declared):
+                    self._error(
+                        "var não pode ser inicializado com null",
+                        node.init,
+                    )
+            else:
+                declared = self._resolve_type(node.type, node)
+                init_type = self.analyze_expr(node.init) if node.init is not None else None
+                if init_type is not None and not self._compatible(declared, init_type):
+                    self._error(
+                        f"não é possível inicializar {declared} com {init_type}",
+                        node.init,
+                    )
+            node.inferred_type = declared
             self._declare(node.name, declared, node)
         elif isinstance(node, ast.ExprStmt):
             self.analyze_expr(node.expr)
@@ -986,6 +1067,45 @@ class SemanticAnalyzer:
                     f"throw espera uma exceção, mas recebeu {value_type}",
                     node.value,
                 )
+        elif isinstance(node, ast.Switch):
+            switch_type = self.analyze_expr(node.expr)
+            is_enum = self._is_enum_type(switch_type)
+            if not (
+                self._is_integral(switch_type)
+                or (switch_type.dims == 0 and switch_type.name == "String")
+                or is_enum
+            ):
+                self._error(
+                    f"switch espera int, char, String ou enum, mas recebeu {switch_type}",
+                    node.expr,
+                )
+            seen_default = False
+            self.switch_depth += 1
+            for case in node.cases:
+                if case.value is None:
+                    if seen_default:
+                        self._error("switch com mais de um default", case)
+                    seen_default = True
+                elif is_enum and isinstance(case.value, ast.Name):
+                    enum_info = self.classes[switch_type.name]
+                    if case.value.id not in enum_info.enum_constants:
+                        self._error(
+                            f"'{case.value.id}' não é constante do enum "
+                            f"{switch_type.name}",
+                            case.value,
+                        )
+                    case.value.enum_owner = switch_type.name
+                    case.value.inferred_type = switch_type
+                else:
+                    value_type = self.analyze_expr(case.value)
+                    if not self._compatible(switch_type, value_type):
+                        self._error(
+                            f"case incompatível com switch {switch_type}: {value_type}",
+                            case.value,
+                        )
+                for stmt in case.stmts:
+                    self._check_stmt(stmt)
+            self.switch_depth -= 1
         elif isinstance(node, ast.For):
             self._push_scope()
             if node.init is not None:
@@ -1016,12 +1136,16 @@ class SemanticAnalyzer:
                     f"for-each espera um array ou ArrayList/List, mas recebeu {iterable}",
                     node.iterable,
                 )
-            declared = self._resolve_type(node.type, node)
-            if element.name != "Object" and not self._compatible(declared, element):
-                self._error(
-                    f"não é possível iterar {iterable} como {declared}",
-                    node,
-                )
+            if node.type is None:
+                declared = element
+            else:
+                declared = self._resolve_type(node.type, node)
+                if element.name != "Object" and not self._compatible(declared, element):
+                    self._error(
+                        f"não é possível iterar {iterable} como {declared}",
+                        node,
+                    )
+            node.inferred_type = declared
             self._push_scope()
             self._declare(node.name, declared, node)
             self.loop_depth += 1
@@ -1047,8 +1171,17 @@ class SemanticAnalyzer:
                         node.value,
                     )
         elif isinstance(node, (ast.Break, ast.Continue)):
-            if self.loop_depth == 0:
-                self._error("break/continue fora de laço", node)
+            if isinstance(node, ast.Break):
+                if self.loop_depth == 0 and self.switch_depth == 0:
+                    self._error("break fora de laço/switch", node)
+            else:
+                if self.loop_depth == 0:
+                    self._error("continue fora de laço", node)
+                if self.switch_depth > 0:
+                    self._error(
+                        "continue dentro de switch ainda não é suportado",
+                        node,
+                    )
         else:
             self._error("comando não suportado", node)
 
@@ -1203,17 +1336,95 @@ class SemanticAnalyzer:
             else_type = self.analyze_expr(node.else_)
             return self._common_type(then_type, else_type, node)
 
+        if isinstance(node, ast.ClassLiteral):
+            target = self._resolve_type(node.type, node, allow_void=True)
+            node.target_type = target
+            return ast.JavaType("Class", args=(target,))
+
         if isinstance(node, ast.Cast):
-            target = self._resolve_type(node.type, node)
-            self.analyze_expr(node.expr)
-            return target
+            return self._analyze_cast(node)
+
+        if isinstance(node, ast.Lambda):
+            self._error(
+                "lambda só pode ser usada como argumento de forEach/removeIf/filter/map/..."
+                ,
+                node,
+            )
 
         if isinstance(node, ast.InstanceOf):
-            self.analyze_expr(node.expr)
-            self._resolve_type(node.type, node)
-            return ast.BOOLEAN
+            return self._analyze_instanceof(node)
 
         self._error("expressão não suportada", node)
+
+    def _analyze_cast(self, node: ast.Cast) -> ast.JavaType:
+        target = self._resolve_type(node.type, node)
+        source = self.analyze_expr(node.expr)
+
+        if target.dims > 0:
+            if self._is_null(source):
+                return target
+            if source.dims != target.dims:
+                self._error(
+                    f"cast de array incompatível: {source} para {target}",
+                    node,
+                )
+            return target
+
+        if target.name == "String":
+            if source == ast.STRING or self._is_null(source):
+                return target
+            self._error(f"cast para String exige String, mas recebeu {source}", node)
+
+        if self._is_numeric(target) and self._is_numeric(source):
+            return target
+
+        if target.name in self.classes or target.name in EXCEPTION_TYPES:
+            if self._is_null(source):
+                return target
+            if not self._is_reference(source) or source.dims > 0:
+                self._error(f"cast de referência inválido: {source} para {target}", node)
+            if target.name in self.classes and source.name in self.classes:
+                related = (
+                    target.name == source.name
+                    or self._is_subtype(source.name, target.name)
+                    or self._is_subtype(target.name, source.name)
+                )
+                if related:
+                    return target
+                if (
+                    self.classes[target.name].is_interface
+                    or self.classes[source.name].is_interface
+                ):
+                    return target
+                self._error(f"cast impossível entre {source} e {target}", node)
+            if self._is_exception_type(source) and self._is_exception_type(target):
+                return target
+
+        self._error(f"cast não suportado: {source} para {target}", node)
+
+    def _analyze_instanceof(self, node: ast.InstanceOf) -> ast.JavaType:
+        source = self.analyze_expr(node.expr)
+        target = self._resolve_type(node.type, node)
+
+        if target.dims > 0:
+            if not (self._is_reference(source) or self._is_null(source)):
+                self._error(f"instanceof de array exige referência, mas recebeu {source}", node)
+            return ast.BOOLEAN
+
+        if target.name == "String":
+            if not (self._is_reference(source) or self._is_null(source)):
+                self._error(f"instanceof String exige referência, mas recebeu {source}", node)
+            return ast.BOOLEAN
+
+        if target.name in self.classes or target.name in EXCEPTION_TYPES:
+            if not (self._is_reference(source) or self._is_null(source)):
+                self._error(
+                    f"instanceof exige referência, mas recebeu {source}",
+                    node,
+                )
+            return ast.BOOLEAN
+
+        self._error(f"instanceof não suportado para {target}", node)
 
     def _analyze_binary(self, node: ast.Binary) -> ast.JavaType:
         left = self.analyze_expr(node.left)
@@ -1295,6 +1506,17 @@ class SemanticAnalyzer:
             self._error(f"campo Double.{name} não suportado", node)
 
         if isinstance(target, ast.Name) and target.id in self.classes:
+            info = self.classes[target.id]
+            if info.is_enum:
+                if name not in info.enum_constants:
+                    self._error(
+                        f"'{name}' não é constante do enum {target.id}",
+                        node,
+                    )
+                node.enum_constant = True
+                node.owner_class = target.id
+                node.constant_name = name
+                return ast.JavaType(target.id)
             found = self._find_field(target.id, name)
             if found is None:
                 self._error(f"campo '{name}' não existe em {target.id}", node)
@@ -1446,6 +1668,12 @@ class SemanticAnalyzer:
 
         if self._is_set_type(target_type):
             return self._analyze_set_call(node, method, target_type)
+
+        if self._is_stream_type(target_type):
+            return self._analyze_stream_call(node, method, target_type)
+
+        if self._is_class_type(target_type):
+            return self._analyze_class_call(node, method)
 
         if target_type.dims == 0 and target_type.name == "Scanner":
             return self._analyze_scanner_call(node, method)
@@ -1694,6 +1922,41 @@ class SemanticAnalyzer:
         node.method_name = method
         return result
 
+    def _analyze_lambda(
+        self,
+        node: ast.Expr,
+        param_types: list[ast.JavaType],
+        expected_return: ast.JavaType | None = None,
+    ) -> ast.JavaType:
+        if not isinstance(node, ast.Lambda):
+            self._error("esperava uma lambda", node)
+        if len(node.params) != len(param_types):
+            self._error(
+                f"lambda espera {len(param_types)} parâmetro(s), "
+                f"recebeu {len(node.params)}",
+                node,
+            )
+        if isinstance(node.body, ast.Block):
+            self._error(
+                "lambda com bloco ainda não é suportada; use expressão",
+                node,
+            )
+
+        self._push_scope()
+        for name, param_type in zip(node.params, param_types):
+            self._declare(name, param_type, node)
+        body_type = self.analyze_expr(node.body)
+        self._pop_scope()
+
+        if expected_return is not None and not self._compatible(expected_return, body_type):
+            self._error(
+                f"lambda deve retornar {expected_return}, mas retorna {body_type}",
+                node.body,
+            )
+        node.param_types = param_types
+        node.body_type = body_type
+        return body_type
+
     def _analyze_list_call(
         self,
         node: ast.Call,
@@ -1701,6 +1964,23 @@ class SemanticAnalyzer:
         target_type: ast.JavaType,
     ) -> ast.JavaType:
         element = self._list_element_type(target_type)
+
+        if method == "stream":
+            if node.args:
+                self._error("stream não espera argumentos", node)
+            node.call_kind = "list_stream"
+            node.method_name = "stream"
+            return ast.JavaType("Stream", args=(element,))
+
+        if method in {"forEach", "removeIf"}:
+            if len(node.args) != 1:
+                self._error(f"{target_type.name}.{method} espera 1 argumento", node)
+            expected = ast.BOOLEAN if method == "removeIf" else None
+            self._analyze_lambda(node.args[0], [element], expected)
+            node.call_kind = "list_for_each" if method == "forEach" else "list_remove_if"
+            node.method_name = method
+            return ast.VOID if method == "forEach" else ast.BOOLEAN
+
         arg_types = [self.analyze_expr(arg) for arg in node.args]
 
         def arity(expected: int) -> None:
@@ -1913,6 +2193,22 @@ class SemanticAnalyzer:
         target_type: ast.JavaType,
     ) -> ast.JavaType:
         element = self._set_element_type(target_type)
+
+        if method == "stream":
+            if node.args:
+                self._error("stream não espera argumentos", node)
+            node.call_kind = "set_stream"
+            node.method_name = "stream"
+            return ast.JavaType("Stream", args=(element,))
+
+        if method == "forEach":
+            if len(node.args) != 1:
+                self._error(f"{target_type.name}.forEach espera 1 argumento", node)
+            self._analyze_lambda(node.args[0], [element])
+            node.call_kind = "set_for_each"
+            node.method_name = "forEach"
+            return ast.VOID
+
         arg_types = [self.analyze_expr(arg) for arg in node.args]
 
         def arity(expected: int) -> None:
@@ -1979,6 +2275,104 @@ class SemanticAnalyzer:
             return ast.STRING
 
         self._error(f"método {target_type.name}.{method} ainda não é suportado", node)
+
+    def _is_collectors_tolist(self, expr: ast.Expr) -> bool:
+        return (
+            isinstance(expr, ast.Call)
+            and isinstance(expr.callee, ast.FieldAccess)
+            and isinstance(expr.callee.target, ast.Name)
+            and expr.callee.target.id == "Collectors"
+            and expr.callee.name == "toList"
+            and not expr.args
+        )
+
+    def _analyze_stream_call(
+        self,
+        node: ast.Call,
+        method: str,
+        target_type: ast.JavaType,
+    ) -> ast.JavaType:
+        element = self._stream_element_type(target_type)
+
+        if method in {"filter", "forEach", "anyMatch", "allMatch", "noneMatch"}:
+            if len(node.args) != 1:
+                self._error(f"Stream.{method} espera 1 argumento", node)
+            expected = ast.BOOLEAN if method != "forEach" else None
+            self._analyze_lambda(node.args[0], [element], expected)
+            node.call_kind = f"stream_{method}"
+            node.method_name = method
+            if method == "filter":
+                return ast.JavaType("Stream", args=(element,))
+            if method == "forEach":
+                return ast.VOID
+            return ast.BOOLEAN
+
+        if method == "map":
+            if len(node.args) != 1:
+                self._error("Stream.map espera 1 argumento", node)
+            result_type = self._analyze_lambda(node.args[0], [element], None)
+            node.call_kind = "stream_map"
+            node.method_name = "map"
+            return ast.JavaType("Stream", args=(result_type,))
+
+        if method == "collect":
+            if len(node.args) != 1 or not self._is_collectors_tolist(node.args[0]):
+                self._error(
+                    "Stream.collect só suporta Collectors.toList()",
+                    node,
+                )
+            node.call_kind = "stream_collect"
+            node.method_name = "collect"
+            return ast.JavaType("ArrayList", args=(element,))
+
+        if method == "count":
+            if node.args:
+                self._error("Stream.count não espera argumentos", node)
+            node.call_kind = "stream_count"
+            node.method_name = "count"
+            return ast.INT
+
+        if method == "sorted":
+            if node.args:
+                self._error("Stream.sorted não espera argumentos", node)
+            node.call_kind = "stream_sorted"
+            node.method_name = "sorted"
+            return ast.JavaType("Stream", args=(element,))
+
+        if method == "limit":
+            if len(node.args) != 1:
+                self._error("Stream.limit espera 1 argumento", node)
+            limit_type = self.analyze_expr(node.args[0])
+            if not self._is_integral(limit_type):
+                self._error("Stream.limit espera int", node.args[0])
+            node.call_kind = "stream_limit"
+            node.method_name = "limit"
+            return ast.JavaType("Stream", args=(element,))
+
+        if method == "toList":
+            if node.args:
+                self._error("Stream.toList não espera argumentos", node)
+            node.call_kind = "stream_to_list"
+            node.method_name = "toList"
+            return ast.JavaType("ArrayList", args=(element,))
+
+        self._error(f"método Stream.{method} ainda não é suportado", node)
+
+    def _analyze_class_call(self, node: ast.Call, method: str) -> ast.JavaType:
+        if method in {"getName", "getSimpleName", "getCanonicalName", "toString"}:
+            if node.args:
+                self._error(f"Class.{method} não espera argumentos", node)
+            node.call_kind = "class_method"
+            node.method_name = method
+            return ast.STRING
+        if method == "isInstance":
+            if len(node.args) != 1:
+                self._error("Class.isInstance espera 1 argumento", node)
+            self.analyze_expr(node.args[0])
+            node.call_kind = "class_method"
+            node.method_name = method
+            return ast.BOOLEAN
+        self._error(f"método Class.{method} ainda não é suportado", node)
 
     def _analyze_exception_call(self, node: ast.Call, method: str) -> ast.JavaType:
         if node.args:
@@ -2092,6 +2486,8 @@ class SemanticAnalyzer:
         info = self.classes[class_name]
         if info.is_interface:
             self._error(f"não é possível instanciar a interface '{class_name}'", node)
+        if info.is_enum:
+            self._error(f"não é possível instanciar o enum '{class_name}'", node)
         if info.is_abstract:
             self._error(f"não é possível instanciar a classe abstrata '{class_name}'", node)
         arg_types = [self.analyze_expr(arg) for arg in node.args]

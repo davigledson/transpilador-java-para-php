@@ -1,4 +1,8 @@
-from transpilador.lexer import JavaLexer, collect_type_names
+from transpilador.lexer import (
+    JavaLexer,
+    collect_type_names,
+    strip_annotation_arguments,
+)
 
 
 def kinds(source: str) -> list[str]:
@@ -40,3 +44,19 @@ def test_string_escapes() -> None:
     tokens = JavaLexer(collect_type_names(source)).tokenize(source)
     literal = next(token for token in tokens if token.type == "STRING_LIT")
     assert literal.value == 'linha\n"x"'
+
+
+def test_text_block() -> None:
+    source = 'class A { String s = """\n    linha 1\n    linha 2\n    """; }'
+    tokens = JavaLexer(collect_type_names(source)).tokenize(source)
+    literal = next(token for token in tokens if token.type == "STRING_LIT")
+    assert literal.value == "linha 1\nlinha 2\n"
+
+
+def test_strip_annotation_arguments_preserves_positions() -> None:
+    source = '@Column(name = "x", length = 150)\nclass A { }'
+    stripped = strip_annotation_arguments(source)
+    assert "@Column" in stripped
+    assert "name" not in stripped
+    assert len(stripped) == len(source)
+    assert stripped.count("\n") == source.count("\n")

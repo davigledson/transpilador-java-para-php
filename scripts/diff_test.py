@@ -97,7 +97,7 @@ def main(argv: list[str] | None = None) -> int:
         (work / "java").mkdir(parents=True)
         (work / "php").mkdir(parents=True)
 
-        compiled = run(["javac", "-d", str(work / "java"), str(path)])
+        compiled = run(["javac", "--release", "21", "-d", str(work / "java"), str(path)])
         if compiled.returncode != 0:
             fail("falha ao compilar com javac", compiled)
             failures += 1

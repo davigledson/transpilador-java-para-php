@@ -68,6 +68,8 @@ NULL = JavaType("null")
 @dataclass
 class Program(Node):
     classes: list[ClassDecl]
+    package: str | None = None
+    imports: list[str] = field(default_factory=list)
     line: int = 0
     col: int = 0
 
@@ -80,6 +82,10 @@ class ClassDecl(Node):
     implements: list[str] = field(default_factory=list)
     modifiers: set[str] = field(default_factory=set)
     is_interface: bool = False
+    is_enum: bool = False
+    enum_constants: list[str] = field(default_factory=list)
+    package: str | None = None
+    imports: list[str] = field(default_factory=list)
     line: int = 0
     col: int = 0
 
@@ -138,7 +144,7 @@ class Block(Node):
 @dataclass
 class LocalVarDecl(Node):
     name: str
-    type: JavaType
+    type: JavaType | None
     init: Expr | None
     line: int = 0
     col: int = 0
@@ -189,7 +195,7 @@ class For(Node):
 @dataclass
 class ForEach(Node):
     name: str
-    type: JavaType
+    type: JavaType | None
     iterable: Expr
     body: Node
     line: int = 0
@@ -236,6 +242,22 @@ class Try(Node):
 @dataclass
 class Throw(Node):
     value: Expr
+    line: int = 0
+    col: int = 0
+
+
+@dataclass
+class SwitchCase(Node):
+    value: Expr | None
+    stmts: list[Node]
+    line: int = 0
+    col: int = 0
+
+
+@dataclass
+class Switch(Node):
+    expr: Expr
+    cases: list[SwitchCase]
     line: int = 0
     col: int = 0
 
@@ -366,9 +388,38 @@ class InstanceOf(Expr):
     col: int = 0
 
 
+@dataclass
+class Lambda(Expr):
+    params: list[str]
+    body: Expr | Block
+    line: int = 0
+    col: int = 0
+
+
+@dataclass
+class ClassLiteral(Expr):
+    type: JavaType
+    line: int = 0
+    col: int = 0
+
+
 # ---------------------------------------------------------------------------
 # Utilitário para debug/testes
 # ---------------------------------------------------------------------------
+
+
+def annotate_source(node: Any, filename: str) -> None:
+    """Marca recursivamente os nós com o arquivo de origem."""
+
+    if dataclasses.is_dataclass(node):
+        setattr(node, "source_file", filename)
+        for f in dataclasses.fields(node):
+            if f.name in {"line", "col"}:
+                continue
+            annotate_source(getattr(node, f.name), filename)
+    elif isinstance(node, (list, tuple)):
+        for item in node:
+            annotate_source(item, filename)
 
 
 def ast_to_dict(node: Any) -> Any:

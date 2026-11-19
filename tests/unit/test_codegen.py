@@ -232,7 +232,162 @@ def test_exceptions_codegen() -> None:
     assert "class MinhaExcecao extends \\RuntimeException" in php
     assert "parent::__construct($mensagem)" in php
     assert "try {" in php
-    assert "catch (\\MinhaExcecao $e)" in php
+    assert "catch (MinhaExcecao $e)" in php
     assert "throw new MinhaExcecao(\"x\")" in php
     assert "->getMessage()" in php
     assert "} finally {" in php
+
+
+def test_switch_codegen() -> None:
+    php = generate(
+        """
+        class A {
+            public static void main(String[] args) {
+                int x = 1;
+                switch (x) {
+                    case 1:
+                        System.out.println("um");
+                        break;
+                    default:
+                        System.out.println("outro");
+                }
+            }
+        }
+        """
+    )
+    assert "switch (true)" in php
+    assert "case ($__switch0 === 1):" in php
+    assert "default:" in php
+    assert "break;" in php
+
+
+def test_enum_codegen() -> None:
+    php = generate(
+        """
+        enum Status { ATIVO, BLOQUEADO }
+        class A {
+            public static void main(String[] args) {
+                Status s = Status.ATIVO;
+                switch (s) {
+                    case ATIVO:
+                        break;
+                    default:
+                        break;
+                }
+            }
+        }
+        """
+    )
+    assert "enum Status" in php
+    assert "case ATIVO;" in php
+    assert "case BLOQUEADO;" in php
+    assert "Status::ATIVO" in php
+    assert "case ($__switch0 === Status::ATIVO):" in php
+
+
+def test_lambda_and_stream_codegen() -> None:
+    php = generate(
+        """
+        class A {
+            public static void main(String[] args) {
+                List<String> nomes = new ArrayList<>();
+                nomes.forEach(n -> System.out.println(n));
+                List<String> maiusculos = nomes.stream()
+                    .map(n -> n.toUpperCase())
+                    .collect(Collectors.toList());
+            }
+        }
+        """
+    )
+    assert "fn($n) => JSystem::println($n)" in php
+    assert "->forEach(" in php
+    assert "->stream()" in php
+    assert "->map(fn($n) => strtoupper($n))" in php
+    assert "->toList()" in php
+
+
+def test_text_block_codegen() -> None:
+    php = generate(
+        '''
+        class A {
+            private String s = """
+                a
+                b
+                """;
+        }
+        '''
+    )
+    assert 'private ?string $s = "a\\nb\\n";' in php
+
+
+def test_cast_and_instanceof_codegen() -> None:
+    php = generate(
+        """
+        class A {
+            void m(A o) {
+                int x = (int) 3.9;
+                double d = (double) 3;
+                char c = (char) 65;
+                int codigo = (int) 'a';
+                boolean b = o instanceof A;
+                A a = (A) o;
+            }
+        }
+        """
+    )
+    assert "((int) (3.9))" in php
+    assert "((float) (3))" in php
+    assert "chr((int) (65))" in php
+    assert "ord(\"a\")" in php
+    assert "($o instanceof A)" in php
+    assert "JCast::to($o, A::class)" in php
+
+
+def test_class_literal_codegen() -> None:
+    php = generate(
+        """
+        class Conta { }
+        class A {
+            public static void main(String[] args) {
+                System.out.println(Conta.class.getSimpleName());
+                System.out.println(int.class);
+            }
+        }
+        """
+    )
+    assert "JClass::of(Conta::class)" in php
+    assert "->getSimpleName()" in php
+    assert 'JClass::of("int")' in php
+
+
+def test_package_namespace_codegen() -> None:
+    php = generate(
+        """
+        package app;
+        class Main {
+            public static void main(String[] args) {
+                System.out.println("ok");
+            }
+        }
+        """
+    )
+    assert "namespace app;" in php
+    assert "use JSystem;" in php
+    assert "Main::main(array_slice($argv, 1));" in php
+
+
+def test_var_codegen() -> None:
+    php = generate(
+        """
+        class A {
+            public static void main(String[] args) {
+                var x = 1;
+                var nome = "Ana";
+                System.out.println(nome + x);
+            }
+        }
+        """
+    )
+    assert "$x = 1;" in php
+    assert '$nome = "Ana";' in php
+    assert "var $" not in php

@@ -433,3 +433,327 @@ def test_throw_requires_exception() -> None:
             }
             """
         )
+
+
+def test_switch_allows_break() -> None:
+    analyze(
+        """
+        class Main {
+            public static void main(String[] args) {
+                int x = 2;
+                switch (x) {
+                    case 1:
+                        System.out.println("um");
+                        break;
+                    default:
+                        break;
+                }
+            }
+        }
+        """
+    )
+
+
+def test_switch_type_is_checked() -> None:
+    with pytest.raises(TranspileError, match="switch espera"):
+        analyze(
+            """
+            class Main {
+                public static void main(String[] args) {
+                    double x = 1.0;
+                    switch (x) {
+                        case 1.0:
+                            break;
+                    }
+                }
+            }
+            """
+        )
+
+
+def test_switch_duplicate_default_is_error() -> None:
+    with pytest.raises(TranspileError, match="mais de um default"):
+        analyze(
+            """
+            class Main {
+                public static void main(String[] args) {
+                    int x = 1;
+                    switch (x) {
+                        default:
+                            break;
+                        default:
+                            break;
+                    }
+                }
+            }
+            """
+        )
+
+
+def test_continue_inside_switch_is_error() -> None:
+    with pytest.raises(TranspileError, match="continue dentro de switch"):
+        analyze(
+            """
+            class Main {
+                public static void main(String[] args) {
+                    for (int i = 0; i < 3; i++) {
+                        switch (i) {
+                            case 1:
+                                continue;
+                            default:
+                                break;
+                        }
+                    }
+                }
+            }
+            """
+        )
+
+
+def test_enum_type_switch_and_equality() -> None:
+    analyze(
+        """
+        enum Status { ATIVO, BLOQUEADO }
+        class Main {
+            public static void main(String[] args) {
+                Status s = Status.ATIVO;
+                boolean ativo = s == Status.ATIVO;
+                switch (s) {
+                    case ATIVO:
+                        System.out.println("ativo");
+                        break;
+                    case BLOQUEADO:
+                        System.out.println("bloqueado");
+                        break;
+                    default:
+                        break;
+                }
+            }
+        }
+        """
+    )
+
+
+def test_enum_invalid_constant_is_error() -> None:
+    with pytest.raises(TranspileError, match="não é constante"):
+        analyze(
+            """
+            enum Status { ATIVO }
+            class Main {
+                public static void main(String[] args) {
+                    Status s = Status.INVALIDO;
+                }
+            }
+            """
+        )
+
+
+def test_enum_cannot_be_instantiated() -> None:
+    with pytest.raises(TranspileError, match="instanciar o enum"):
+        analyze(
+            """
+            enum Status { ATIVO }
+            class Main {
+                public static void main(String[] args) {
+                    Status s = new Status();
+                }
+            }
+            """
+        )
+
+
+def test_duplicate_enum_constant_is_error() -> None:
+    with pytest.raises(TranspileError, match="duplicada"):
+        analyze(
+            """
+            enum Status { ATIVO, ATIVO }
+            """
+        )
+
+
+def test_lambdas_and_streams() -> None:
+    analyze(
+        """
+        class Main {
+            public static void main(String[] args) {
+                List<String> nomes = new ArrayList<>();
+                nomes.add("Ana");
+                nomes.add("Bia");
+                nomes.forEach(n -> System.out.println(n));
+                List<String> longos = nomes.stream()
+                    .filter(n -> n.length() > 3)
+                    .collect(Collectors.toList());
+                List<String> maiusculos = nomes.stream()
+                    .map(n -> n.toUpperCase())
+                    .collect(Collectors.toList());
+                int total = nomes.stream().count();
+                boolean tem = nomes.stream().anyMatch(n -> n.equals("Ana"));
+                nomes.removeIf(n -> n.startsWith("B"));
+            }
+        }
+        """
+    )
+
+
+def test_lambda_requires_context() -> None:
+    with pytest.raises(TranspileError, match="lambda só pode"):
+        analyze(
+            """
+            class Main {
+                public static void main(String[] args) {
+                    String x = n -> n;
+                }
+            }
+            """
+        )
+
+
+def test_lambda_arity_is_checked() -> None:
+    with pytest.raises(TranspileError, match="lambda espera 1"):
+        analyze(
+            """
+            class Main {
+                public static void main(String[] args) {
+                    List<String> nomes = new ArrayList<>();
+                    nomes.forEach((a, b) -> a);
+                }
+            }
+            """
+        )
+
+
+def test_block_lambda_is_error() -> None:
+    with pytest.raises(TranspileError, match="lambda com bloco"):
+        analyze(
+            """
+            class Main {
+                public static void main(String[] args) {
+                    List<String> nomes = new ArrayList<>();
+                    nomes.forEach(n -> { System.out.println(n); });
+                }
+            }
+            """
+        )
+
+
+def test_casts_and_instanceof() -> None:
+    analyze(
+        """
+        class Animal {
+            protected String nome;
+            Animal(String nome) { this.nome = nome; }
+            String falar() { return nome; }
+        }
+        class Cachorro extends Animal {
+            Cachorro(String nome) { super(nome); }
+        }
+        class Main {
+            public static void main(String[] args) {
+                int i = (int) 3.9;
+                double d = (double) 3;
+                char c = (char) 65;
+                int codigo = (int) 'a';
+                Animal a = new Cachorro("Rex");
+                boolean b = a instanceof Cachorro;
+                Cachorro c2 = (Cachorro) a;
+                System.out.println(c2.falar());
+            }
+        }
+        """
+    )
+
+
+def test_invalid_cast_is_error() -> None:
+    with pytest.raises(TranspileError, match="cast"):
+        analyze(
+            """
+            class Main {
+                public static void main(String[] args) {
+                    String s = (String) 1;
+                }
+            }
+            """
+        )
+
+
+def test_instanceof_requires_reference() -> None:
+    with pytest.raises(TranspileError, match="instanceof"):
+        analyze(
+            """
+            class Main {
+                public static void main(String[] args) {
+                    boolean b = 1 instanceof Main;
+                }
+            }
+            """
+        )
+
+
+def test_class_literals_and_methods() -> None:
+    analyze(
+        """
+        class Conta { }
+        class Main {
+            public static void main(String[] args) {
+                Class c = Conta.class;
+                System.out.println(c);
+                System.out.println(c.getSimpleName());
+                System.out.println(c.getName());
+                Conta conta = new Conta();
+                System.out.println(c.isInstance(conta));
+            }
+        }
+        """
+    )
+
+
+def test_package_qualified_name() -> None:
+    _program, analyzer = analyze(
+        """
+        package app;
+        class Main {
+            public static void main(String[] args) { }
+        }
+        """
+    )
+    info = analyzer.classes["Main"]
+    assert info.package == "app"
+    assert info.qualified_name == "app.Main"
+
+
+def test_var_type_inference() -> None:
+    program, _analyzer = analyze(
+        """
+        class Main {
+            public static void main(String[] args) {
+                var x = 1;
+                var nome = "Ana";
+                var lista = new ArrayList<String>();
+                lista.add("Bia");
+                for (var n : lista) {
+                    System.out.println(n);
+                }
+            }
+        }
+        """
+    )
+    stmts = program.classes[0].members[0].body.stmts
+    assert stmts[0].inferred_type == ast.INT
+    assert stmts[1].inferred_type == ast.STRING
+    assert stmts[2].inferred_type.name == "ArrayList"
+    assert stmts[2].inferred_type.args == (ast.STRING,)
+    assert stmts[4].type is None
+    assert stmts[4].inferred_type == ast.STRING
+
+
+def test_var_cannot_be_null() -> None:
+    with pytest.raises(TranspileError, match="null"):
+        analyze(
+            """
+            class Main {
+                public static void main(String[] args) {
+                    var x = null;
+                }
+            }
+            """
+        )

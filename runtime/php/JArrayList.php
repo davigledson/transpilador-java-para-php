@@ -108,4 +108,31 @@ final class JArrayList implements IteratorAggregate
     {
         return new ArrayIterator($this->items);
     }
+
+    public function stream(): JStream
+    {
+        return new JStream($this->items);
+    }
+
+    public function forEach(callable $consumer): void
+    {
+        foreach ($this->items as $item) {
+            $consumer($item);
+        }
+    }
+
+    public function removeIf(callable $predicate): bool
+    {
+        $changed = false;
+        $kept = [];
+        foreach ($this->items as $item) {
+            if ($predicate($item)) {
+                $changed = true;
+            } else {
+                $kept[] = $item;
+            }
+        }
+        $this->items = $kept;
+        return $changed;
+    }
 }

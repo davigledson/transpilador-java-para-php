@@ -21,6 +21,8 @@ TYPE_MAP = {
     "Map": "JHashMap",
     "HashSet": "JHashSet",
     "Set": "JHashSet",
+    "Stream": "JStream",
+    "Class": "JClass",
     "Throwable": "\\Throwable",
     "Exception": "\\Exception",
     "RuntimeException": "\\RuntimeException",
@@ -40,7 +42,25 @@ LIBRARY_TYPES = {
     "Map",
     "HashSet",
     "Set",
+    "Stream",
+    "Class",
 }
+
+RUNTIME_USES = (
+    "JSystem",
+    "JString",
+    "JArrayList",
+    "JStream",
+    "JHashMap",
+    "JHashSet",
+    "JScanner",
+    "JCast",
+    "JClass",
+)
+
+
+def php_name(qualified_name: str) -> str:
+    return qualified_name.replace(".", "\\")
 
 
 class PhpEmitter:
@@ -49,6 +69,9 @@ class PhpEmitter:
         self.lines: list[str] = []
         self.indent = 0
         self.current_class: str | None = None
+        self.switch_counter = 0
+        self.current_package: str | None = None
+        self.current_imports: list[str] = []
 
     # ------------------------------------------------------------------
     # API pública
@@ -56,11 +79,9 @@ class PhpEmitter:
 
     def emit(self, program: ast.Program) -> str:
         self.lines = []
-        self.line("<?php")
-        self.line("declare(strict_types=1);")
-        self.line()
-        self.line("require_once __DIR__ . '/runtime/bootstrap.php';")
-        self.line()
+        self.current_package = program.package
+        self.current_imports = list(program.imports)
+        self._emit_header(program, "require_once __DIR__ . '/runtime/bootstrap.php';")
 
         for cls in self.ordered_classes(program.classes):
             self.emit_class(cls)
@@ -73,6 +94,68 @@ class PhpEmitter:
             self.emit_entrypoint(main_class)
 
         return "\n".join(self.lines).rstrip() + "\n"
+
+    def emit_module(self, program: ast.Program, bootstrap_depth: int = 0) -> str:
+        """Gera um arquivo PHP de módulo para o modo projeto.
+
+        ``bootstrap_depth`` é a quantidade de diretórios entre o arquivo e a
+        raiz de saída (onde fica ``bootstrap.php``).
+        """
+
+        self.lines = []
+        self.switch_counter = 0
+        self.current_package = program.package
+        self.current_imports = list(program.imports)
+        if bootstrap_depth <= 0:
+            require_line = "require_once __DIR__ . '/bootstrap.php';"
+        else:
+            require_line = (
+                f"require_once dirname(__DIR__, {bootstrap_depth}) . '/bootstrap.php';"
+            )
+        self._emit_header(program, require_line)
+
+        for cls in self.ordered_classes(program.classes):
+            self.emit_class(cls)
+
+        return "\n".join(self.lines).rstrip() + "\n"
+
+    def _emit_header(self, program: ast.Program, require_line: str) -> None:
+        self.line("<?php")
+        self.line("declare(strict_types=1);")
+        if program.package:
+            self.line(f"namespace {php_name(program.package)};")
+
+        uses = set(self.php_uses(program))
+        if program.package:
+            uses.update(RUNTIME_USES)
+        if uses:
+            self.line()
+            for item in sorted(uses):
+                self.line(f"use {item};")
+
+        self.line()
+        self.line(require_line)
+        self.line()
+
+    def php_uses(self, program: ast.Program) -> list[str]:
+        current_package = program.package
+        result: list[str] = []
+        for imported in program.imports:
+            if imported.endswith(".*"):
+                prefix = imported[:-2]
+                for info in self.classes.values():
+                    if info.package == prefix and info.package != current_package:
+                        result.append(php_name(info.qualified_name))
+                continue
+            simple = imported.rsplit(".", 1)[-1]
+            info = self.classes.get(simple)
+            if (
+                info is not None
+                and info.qualified_name == imported
+                and info.package != current_package
+            ):
+                result.append(php_name(info.qualified_name))
+        return sorted(set(result))
 
     def ordered_classes(self, classes: list[ast.ClassDecl]) -> list[ast.ClassDecl]:
         """Emite dependências antes: pai/interface antes do filho.
@@ -115,6 +198,7 @@ class PhpEmitter:
             message,
             getattr(node, "line", 0),
             getattr(node, "col", 0),
+            getattr(node, "source_file", ""),
         )
 
     # ------------------------------------------------------------------
@@ -128,6 +212,8 @@ class PhpEmitter:
             base = TYPE_MAP[t.name]
         elif t.name == "null":
             base = "mixed"
+        elif t.name in self.classes:
+            base = self.php_class_name(t.name)
         else:
             base = t.name
 
@@ -145,6 +231,21 @@ class PhpEmitter:
 
     def php_exception_name(self, name: str) -> str:
         return TYPE_MAP.get(name, "\\" + name)
+
+    def php_class_name(self, name: str) -> str:
+        if name in EXCEPTION_TYPES:
+            return self.php_exception_name(name)
+        info = self.classes.get(name)
+        if info is None or not info.package:
+            return name
+        if info.package == self.current_package:
+            return name
+        if info.qualified_name in self.current_imports:
+            return name
+        for imported in self.current_imports:
+            if imported.endswith(".*") and imported[:-2] == info.package:
+                return name
+        return "\\" + php_name(info.qualified_name)
 
     def default_value(self, t: ast.JavaType) -> str:
         if t.dims > 0:
@@ -165,6 +266,17 @@ class PhpEmitter:
 
     def emit_class(self, cls: ast.ClassDecl) -> None:
         self.current_class = cls.name
+        if cls.is_enum:
+            self.line(f"enum {cls.name}")
+            self.line("{")
+            self.indent += 1
+            for constant in cls.enum_constants:
+                self.line(f"case {constant};")
+            self.indent -= 1
+            self.line("}")
+            self.line()
+            self.current_class = None
+            return
         if cls.is_interface:
             kind = "interface"
         elif "abstract" in cls.modifiers:
@@ -174,8 +286,11 @@ class PhpEmitter:
         extends_name = cls.extends
         if extends_name in EXCEPTION_TYPES:
             extends_name = self.php_exception_name(extends_name)
+        elif extends_name in self.classes:
+            extends_name = self.php_class_name(extends_name)
         extends = f" extends {extends_name}" if extends_name else ""
-        implements = f" implements {', '.join(cls.implements)}" if cls.implements else ""
+        implements_list = ", ".join(self.php_class_name(i) for i in cls.implements)
+        implements = f" implements {implements_list}" if implements_list else ""
         self.line(f"{kind} {cls.name}{extends}{implements}")
         self.line("{")
         self.indent += 1
@@ -375,7 +490,7 @@ class PhpEmitter:
             self.emit_block_contents(node.body)
             self.indent -= 1
             for catch in node.catches:
-                catch_type = self.php_exception_name(catch.type.name)
+                catch_type = self.php_class_name(catch.type.name)
                 self.line(f"}} catch ({catch_type} ${catch.name}) {{")
                 self.indent += 1
                 self.emit_block_contents(catch.body)
@@ -388,6 +503,24 @@ class PhpEmitter:
             self.line("}")
         elif isinstance(node, ast.Throw):
             self.line(f"throw {self.emit_expr(node.value)};")
+        elif isinstance(node, ast.Switch):
+            temp = f"$__switch{self.switch_counter}"
+            self.switch_counter += 1
+            self.line(f"{temp} = {self.emit_expr(node.expr)};")
+            self.line("switch (true) {")
+            self.indent += 1
+            for case in node.cases:
+                if case.value is None:
+                    self.line("default:")
+                else:
+                    value = self.emit_expr(case.value)
+                    self.line(f"case ({temp} === {value}):")
+                self.indent += 1
+                for stmt in case.stmts:
+                    self.emit_stmt(stmt)
+                self.indent -= 1
+            self.indent -= 1
+            self.line("}")
         elif isinstance(node, ast.For):
             init = self.emit_for_init(node.init)
             cond = self.emit_expr(node.cond) if node.cond is not None else "true"
@@ -462,7 +595,7 @@ class PhpEmitter:
             if node.class_name == "Scanner":
                 return "new JScanner()"
             args = ", ".join(self.emit_expr(arg) for arg in node.args)
-            return f"new {node.class_name}({args})"
+            return f"new {self.php_class_name(node.class_name)}({args})"
         if isinstance(node, ast.NewArray):
             if node.init is not None:
                 items = ", ".join(self.emit_expr(item) for item in node.init)
@@ -486,10 +619,24 @@ class PhpEmitter:
             then = self.emit_expr(node.then)
             otherwise = self.emit_expr(node.else_)
             return f"({cond} ? {then} : {otherwise})"
+        if isinstance(node, ast.ClassLiteral):
+            target = node.type
+            if target.dims > 0:
+                return 'JClass::of("array")'
+            if target.name in self.classes:
+                return f"JClass::of({self.php_class_name(target.name)}::class)"
+            if target.name in EXCEPTION_TYPES:
+                return f"JClass::of({self.php_exception_name(target.name)}::class)"
+            return f'JClass::of("{target.name}")'
         if isinstance(node, ast.Cast):
-            return f"(({self.php_type(node.type, nullable=False)}) {self.emit_expr(node.expr)})"
+            return self.emit_cast(node)
+        if isinstance(node, ast.Lambda):
+            if isinstance(node.body, ast.Block):
+                self.error("lambda com bloco não suportada no gerador", node)
+            params = ", ".join(f"${param}" for param in node.params)
+            return f"fn({params}) => {self.emit_expr(node.body)}"
         if isinstance(node, ast.InstanceOf):
-            return f"({self.emit_expr(node.expr)} instanceof {node.type.name})"
+            return self.emit_instanceof(node)
         self.error("expressão não suportada pelo gerador", node)
         return ""
 
@@ -518,6 +665,9 @@ class PhpEmitter:
         return "null"
 
     def emit_name(self, node: ast.Name) -> str:
+        enum_owner = getattr(node, "enum_owner", None)
+        if enum_owner:
+            return f"{enum_owner}::{node.id}"
         binding = getattr(node, "binding", None)
         if binding is None:
             return f"${node.id}"
@@ -529,7 +679,7 @@ class PhpEmitter:
         if kind == "field":
             _kind, owner, name, is_static = binding
             if is_static:
-                owner_ref = "self" if owner == self.current_class else owner
+                owner_ref = "self" if owner == self.current_class else self.php_class_name(owner)
                 return f"{owner_ref}::${name}"
             return f"$this->{name}"
         return f"${node.id}"
@@ -537,6 +687,8 @@ class PhpEmitter:
     def emit_field_access(self, node: ast.FieldAccess) -> str:
         if getattr(node, "is_length", False):
             return f"count({self.emit_expr(node.target)})"
+        if getattr(node, "enum_constant", False):
+            return f"{self.php_class_name(node.owner_class)}::{node.constant_name}"
         if getattr(node, "php_constant", None):
             return node.php_constant
         if isinstance(node.target, ast.Super):
@@ -545,16 +697,21 @@ class PhpEmitter:
             return f"$this->{node.name}"
         if getattr(node, "is_static_field", False):
             owner = getattr(node, "owner_class", None)
-            owner_ref = "self" if owner == self.current_class else owner
+            owner_ref = "self" if owner == self.current_class else self.php_class_name(owner)
             return f"{owner_ref}::${node.name}"
         target = self.emit_expr(node.target)
         return f"{self.wrap_member_target(target)}->{node.name}"
 
     def emit_call(self, node: ast.Call) -> str:
         kind = getattr(node, "call_kind", None)
-        args = ", ".join(self.emit_expr(arg) for arg in node.args)
         method = getattr(node, "method_name", "")
         callee = node.callee
+
+        if kind == "stream_collect" or kind == "stream_to_list":
+            target = self.emit_expr(callee.target)
+            return f"{self.wrap_member_target(target)}->toList()"
+
+        args = ", ".join(self.emit_expr(arg) for arg in node.args)
 
         if kind == "system_out":
             return f"JSystem::{method}({args})"
@@ -570,10 +727,13 @@ class PhpEmitter:
             if method == "toString":
                 return f"(string) {t}"
             self.error(f"método de exceção '{method}' não suportado no gerador", node)
-        if kind is not None and kind.startswith(("list_", "map_", "set_")):
+        if kind is not None and kind.startswith(("list_", "map_", "set_", "stream_")):
             target = self.emit_expr(callee.target)
             return f"{self.wrap_member_target(target)}->{method}({args})"
         if kind == "scanner":
+            target = self.emit_expr(callee.target)
+            return f"{self.wrap_member_target(target)}->{method}({args})"
+        if kind == "class_method":
             target = self.emit_expr(callee.target)
             return f"{self.wrap_member_target(target)}->{method}({args})"
         if kind == "super_ctor":
@@ -606,7 +766,7 @@ class PhpEmitter:
             self.error(f"Math.{method} não suportado no gerador", node)
         if kind == "static":
             owner = getattr(node, "owner_class", None)
-            return f"{owner}::{method}({args})"
+            return f"{self.php_class_name(owner)}::{method}({args})"
         if kind == "instance":
             target = self.emit_expr(callee.target)
             return f"{self.wrap_member_target(target)}->{method}({args})"
@@ -682,6 +842,46 @@ class PhpEmitter:
             elif char == "," and depth == 0:
                 return args[:i].strip(), args[i + 1 :].strip()
         return args.strip(), ""
+
+    def php_class_ref(self, name: str) -> str:
+        return self.php_class_name(name)
+
+    def emit_cast(self, node: ast.Cast) -> str:
+        target = node.type
+        source = getattr(node.expr, "inferred_type", None)
+        expr = self.emit_expr(node.expr)
+
+        if target.dims > 0:
+            return f"JCast::toArray({expr})"
+        if target.name == "String":
+            return f"JCast::toString({expr})"
+        if target.name == "char":
+            numeric = f"ord({expr})" if source is not None and source.name == "char" else expr
+            return f"chr((int) ({numeric}))"
+        if target.name == "int":
+            if source is not None and source.name == "char":
+                return f"ord({expr})"
+            return f"((int) ({expr}))"
+        if target.name == "double":
+            if source is not None and source.name == "char":
+                return f"((float) ord({expr}))"
+            return f"((float) ({expr}))"
+        if target.name in self.classes or target.name in EXCEPTION_TYPES:
+            return f"JCast::to({expr}, {self.php_class_ref(target.name)}::class)"
+        self.error(f"cast não suportado no gerador: {target}", node)
+        return ""
+
+    def emit_instanceof(self, node: ast.InstanceOf) -> str:
+        target = node.type
+        expr = self.emit_expr(node.expr)
+        if target.dims > 0:
+            return f"is_array({expr})"
+        if target.name == "String":
+            return f"is_string({expr})"
+        if target.name in self.classes or target.name in EXCEPTION_TYPES:
+            return f"({expr} instanceof {self.php_class_ref(target.name)})"
+        self.error(f"instanceof não suportado no gerador: {target}", node)
+        return ""
 
     def emit_binary(self, node: ast.Binary) -> str:
         left = self.emit_expr(node.left)

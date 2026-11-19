@@ -7,6 +7,111 @@ import ply.lex as lex
 from .erros import TranspileError
 
 
+def _skip_quoted(source: str, index: int) -> int:
+    quote = source[index]
+    i = index + 1
+    length = len(source)
+    while i < length:
+        if source[i] == "\\":
+            i += 2
+            continue
+        if source[i] == quote:
+            return i + 1
+        i += 1
+    return length
+
+
+def _skip_text_block(source: str, index: int) -> int:
+    i = index + 3
+    length = len(source)
+    while i < length:
+        if source.startswith('"""', i):
+            return i + 3
+        if source[i] == "\\":
+            i += 2
+        else:
+            i += 1
+    return length
+
+
+def _find_annotation_args_end(source: str, open_index: int) -> int | None:
+    depth = 0
+    i = open_index
+    length = len(source)
+    while i < length:
+        if source.startswith("//", i):
+            newline = source.find("\n", i)
+            i = length if newline < 0 else newline
+            continue
+        if source.startswith("/*", i):
+            end = source.find("*/", i + 2)
+            i = length if end < 0 else end + 2
+            continue
+        if source.startswith('"""', i):
+            i = _skip_text_block(source, i)
+            continue
+        char = source[i]
+        if char in {'"', "'"}:
+            i = _skip_quoted(source, i)
+            continue
+        if char == "(":
+            depth += 1
+        elif char == ")":
+            depth -= 1
+            if depth == 0:
+                return i + 1
+        i += 1
+    return None
+
+
+def strip_annotation_arguments(source: str) -> str:
+    """Remove os argumentos das anotações, preservando linhas/colunas.
+
+    ``@Column(name = "x", length = 150)`` vira ``@Column`` seguido de espaços.
+    As anotações continuam sendo lidas e ignoradas; apenas os argumentos não
+    precisam entrar na gramática.
+    """
+
+    chars = list(source)
+    i = 0
+    length = len(source)
+    while i < length:
+        if source.startswith("//", i):
+            newline = source.find("\n", i)
+            i = length if newline < 0 else newline
+            continue
+        if source.startswith("/*", i):
+            end = source.find("*/", i + 2)
+            i = length if end < 0 else end + 2
+            continue
+        if source.startswith('"""', i):
+            i = _skip_text_block(source, i)
+            continue
+        char = source[i]
+        if char in {'"', "'"}:
+            i = _skip_quoted(source, i)
+            continue
+        if char == "@":
+            j = i + 1
+            while j < length and (source[j].isalnum() or source[j] == "_"):
+                j += 1
+            k = j
+            while k < length and source[k] in " \t\r\n":
+                k += 1
+            if k < length and source[k] == "(":
+                end = _find_annotation_args_end(source, k)
+                if end is not None:
+                    for index in range(k, end):
+                        if chars[index] not in "\r\n":
+                            chars[index] = " "
+                    i = end
+                    continue
+            i = j
+            continue
+        i += 1
+    return "".join(chars)
+
+
 class JavaLexer:
     tokens = (
         "CLASS",
@@ -42,6 +147,13 @@ class JavaLexer:
         "FINALLY",
         "THROW",
         "THROWS",
+        "SWITCH",
+        "CASE",
+        "DEFAULT",
+        "RECORD",
+        "SEALED",
+        "VAR",
+        "YIELD",
         "RETURN",
         "BREAK",
         "CONTINUE",
@@ -71,7 +183,9 @@ class JavaLexer:
         "GE",
         "AND",
         "OR",
+        "BITOR",
         "NOT",
+        "INSTANCEOF",
         "INC",
         "DEC",
         "PLUS_ASSIGN",
@@ -90,6 +204,7 @@ class JavaLexer:
         "COLON",
         "QUESTION",
         "AT",
+        "ARROW",
     )
 
     reserved = {
@@ -126,6 +241,13 @@ class JavaLexer:
         "finally": "FINALLY",
         "throw": "THROW",
         "throws": "THROWS",
+        "switch": "SWITCH",
+        "case": "CASE",
+        "default": "DEFAULT",
+        "record": "RECORD",
+        "sealed": "SEALED",
+        "var": "VAR",
+        "yield": "YIELD",
         "return": "RETURN",
         "break": "BREAK",
         "continue": "CONTINUE",
@@ -135,6 +257,7 @@ class JavaLexer:
         "true": "TRUE",
         "false": "FALSE",
         "null": "NULL",
+        "instanceof": "INSTANCEOF",
     }
 
     t_ignore = " \t\r\f"
@@ -171,6 +294,15 @@ class JavaLexer:
         r"\d+"
         t.value = int(t.value)
         t.col = self._column(t)
+        return t
+
+    def t_TEXT_BLOCK(self, t):
+        r'"""[\s\S]*?"""'
+        raw = t.value
+        t.value = self._decode_text_block(raw)
+        t.col = self._column(t)
+        t.lexer.lineno += raw.count("\n")
+        t.type = "STRING_LIT"
         return t
 
     def t_STRING_LIT(self, t):
@@ -252,6 +384,12 @@ class JavaLexer:
         r"\|\|"
         return t
 
+    t_BITOR = r"\|"
+
+    def t_ARROW(self, t):
+        r"->"
+        return t
+
     # ------------------------------------------------------------------
     # Operadores e pontuação de um caractere
     # ------------------------------------------------------------------
@@ -289,10 +427,34 @@ class JavaLexer:
         "b": "\b",
         "f": "\f",
         "0": "\0",
+        "s": " ",
         "\\": "\\",
         '"': '"',
         "'": "'",
     }
+
+    def _decode_text_block(self, raw: str) -> str:
+        content = raw[3:-3].replace("\r\n", "\n").replace("\r", "\n")
+        if "\n" in content:
+            first, rest = content.split("\n", 1)
+            if first.strip(" \t") == "":
+                content = rest
+
+        lines = content.split("\n")
+        indents = [
+            len(line) - len(line.lstrip(" \t"))
+            for line in lines
+            if line.strip(" \t") != ""
+        ]
+        indent = min(indents) if indents else 0
+
+        stripped: list[str] = []
+        for line in lines:
+            if line.strip(" \t") == "":
+                stripped.append("")
+            else:
+                stripped.append(line[indent:].rstrip(" \t"))
+        return self._decode_escapes("\n".join(stripped))
 
     def _column(self, t) -> int:
         data = t.lexer.lexdata
@@ -313,6 +475,10 @@ class JavaLexer:
                 out.append("\\")
                 break
             esc = raw[i]
+            if esc == "\n":
+                # Continuação de linha em text block: remove a quebra.
+                i += 1
+                continue
             if esc == "u":
                 hex_part = raw[i + 1 : i + 5]
                 if len(hex_part) == 4 and all(c in "0123456789abcdefABCDEF" for c in hex_part):
@@ -343,7 +509,7 @@ class JavaLexer:
 
     def tokenize(self, source: str) -> list[lex.LexToken]:
         self.lexer.lineno = 1
-        self.lexer.input(source)
+        self.lexer.input(strip_annotation_arguments(source))
         return list(iter(self.lexer.token, None))
 
 
@@ -358,7 +524,7 @@ def collect_type_names(source: str) -> set[str]:
     tokens = lexer.tokenize(source)
     names: set[str] = set()
     for index, token in enumerate(tokens[:-1]):
-        if token.type in {"CLASS", "INTERFACE"} and tokens[index + 1].type == "ID":
+        if token.type in {"CLASS", "INTERFACE", "ENUM"} and tokens[index + 1].type == "ID":
             names.add(tokens[index + 1].value)
     # Tipos de biblioteca que o transpilador conhece e traduz para o runtime.
     names.update(
@@ -370,6 +536,8 @@ def collect_type_names(source: str) -> set[str]:
             "Map",
             "HashSet",
             "Set",
+            "Stream",
+            "Class",
             "Throwable",
             "Exception",
             "RuntimeException",
