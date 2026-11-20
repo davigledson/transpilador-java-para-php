@@ -73,6 +73,40 @@ final class JString
         return $position === false ? -1 : $position;
     }
 
+    public static function isBlank(string $text): bool
+    {
+        return preg_match('/^\s*$/u', $text) === 1;
+    }
+
+    public static function strip(string $text): string
+    {
+        return preg_replace('/^\s+|\s+$/u', '', $text) ?? $text;
+    }
+
+    public static function stripLeading(string $text): string
+    {
+        return preg_replace('/^\s+/u', '', $text) ?? $text;
+    }
+
+    public static function stripTrailing(string $text): string
+    {
+        return preg_replace('/\s+$/u', '', $text) ?? $text;
+    }
+
+    public static function repeat(string $text, int $count): string
+    {
+        if ($count < 0) {
+            throw new RuntimeException('IllegalArgumentException: repeat negativo');
+        }
+        return str_repeat($text, $count);
+    }
+
+    public static function formatted(string $format, mixed ...$args): string
+    {
+        $format = str_replace('%n', PHP_EOL, $format);
+        return vsprintf($format, $args);
+    }
+
     /**
      * Java usa regex em String.split; mantemos a mesma ideia com PCRE.
      */

@@ -550,6 +550,7 @@ def collect_type_names(source: str) -> set[str]:
             "Set",
             "Stream",
             "Class",
+            "Optional",
             "Throwable",
             "Error",
             "Exception",

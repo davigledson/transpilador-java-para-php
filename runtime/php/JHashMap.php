@@ -12,6 +12,18 @@ final class JHashMap
     private array $values = [];
     private array $keys = [];
 
+    public static function of(mixed ...$pairs): self
+    {
+        if (count($pairs) % 2 !== 0) {
+            throw new RuntimeException('IllegalArgumentException: Map.of exige pares chave/valor');
+        }
+        $map = new self();
+        for ($index = 0; $index < count($pairs); $index += 2) {
+            $map->put($pairs[$index], $pairs[$index + 1]);
+        }
+        return $map;
+    }
+
     private function encodeKey(mixed $key): string
     {
         if (is_object($key)) {

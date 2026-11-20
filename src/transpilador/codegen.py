@@ -23,6 +23,7 @@ TYPE_MAP = {
     "Set": "JHashSet",
     "Stream": "JStream",
     "Class": "JClass",
+    "Optional": "JOptional",
     "Throwable": "\\Throwable",
     "Error": "\\Error",
     "Exception": "\\Exception",
@@ -944,6 +945,22 @@ class PhpEmitter:
 
         args = ", ".join(self.emit_expr(arg) for arg in node.args)
 
+        if kind == "list_of":
+            return f"JArrayList::of({args})"
+        if kind == "map_of":
+            return f"JHashMap::of({args})"
+        if kind == "set_of":
+            return f"JHashSet::of({args})"
+        if kind == "optional_of":
+            return f"JOptional::of({args})"
+        if kind == "optional_of_nullable":
+            return f"JOptional::ofNullable({args})"
+        if kind == "optional_empty":
+            return "JOptional::empty()"
+        if kind == "optional_method":
+            target = self.emit_expr(callee.target)
+            return f"{self.wrap_member_target(target)}->{method}({args})"
+
         if kind == "system_out":
             return f"JSystem::{method}({args})"
         if kind == "exception_method":
@@ -994,6 +1011,8 @@ class PhpEmitter:
                 return f"{method}({args})"
             if method == "pow":
                 return f"pow({args})"
+            if method in {"floorDiv", "floorMod", "ceilDiv", "signum", "clamp"}:
+                return f"JMath::{method}({args})"
             self.error(f"Math.{method} não suportado no gerador", node)
         if kind == "static":
             owner = getattr(node, "owner_class", None)
@@ -1046,6 +1065,19 @@ class PhpEmitter:
             return target
         if method == "compareTo":
             return f"strcmp({target}, {args})"
+        if method == "isBlank":
+            return f"JString::isBlank({target})"
+        if method == "strip":
+            return f"JString::strip({target})"
+        if method == "stripLeading":
+            return f"JString::stripLeading({target})"
+        if method == "stripTrailing":
+            return f"JString::stripTrailing({target})"
+        if method == "repeat":
+            return f"JString::repeat({target}, {args})"
+        if method == "formatted":
+            extra = f", {args}" if args else ""
+            return f"JString::formatted({target}{extra})"
         self.error(f"método String.{method} não suportado no gerador", node)
         return ""
 

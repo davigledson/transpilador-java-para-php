@@ -18,8 +18,9 @@ records, sealed types, exceções, `switch`, `ArrayList`/`HashMap`/`HashSet`,
 `Scanner`, lambdas, streams, casts, `instanceof` (com pattern binding),
 pattern matching em `switch`, class literals, text blocks, declaração/uso de
 anotações e `package`/`import`
-mapeados para namespace/use do PHP. O resultado é validado por 149 testes
-unitários, 33 programas no teste
+mapeados para namespace/use do PHP, além de `List.of`/`Set.of`/`Map.of`,
+`Optional` e métodos Java 21 de `String`/`Math`. O resultado é validado por
+154 testes unitários, 34 programas no teste
 diferencial Java×PHP e um teste de projeto multi-arquivo, todos executados
 por `make check` e pelo CI.
 
@@ -131,6 +132,7 @@ As lacunas foram tratadas com quatro estratégias:
 | Funcional | lambdas de expressão, `filter`, `map`, `forEach`, `removeIf`, `collect(Collectors.toList())`, `count`, `anyMatch` etc. |
 | Tipos | `int`, `double`, `boolean`, `char`, `String`, arrays, `void`; `long`/`float`/`byte`/`short` normalizados |
 | Sintaxe moderna | text blocks, anotações com argumentos (ignoradas), casts, `instanceof` com pattern, class literals |
+| Biblioteca 21 | `List.of`, `Set.of`, `Map.of`, `Optional`, `Stream.toList`, `String.isBlank`/`strip`/`repeat`/`formatted`, `Math.clamp`/`floorDiv`/`floorMod`/`ceilDiv`/`signum` |
 | Projeto | pasta recursiva, `package` → namespace, `import` → `use`, autoloader, `run.php` |
 
 ### 3.2 Fora do escopo
@@ -270,6 +272,12 @@ AST tipada
 | `catch (A \| B e)` | `catch (\A \| \B $e)` |
 | `Conta.class` | `JClass::of(Conta::class)` |
 | `new ArrayList<>()` | `new JArrayList()` |
+| `List.of(a, b)` | `JArrayList::of(a, b)` |
+| `Set.of(a, b)` | `JHashSet::of(a, b)` |
+| `Map.of(k, v)` | `JHashMap::of(k, v)` |
+| `Optional.of(x)` | `JOptional::of(x)` |
+| `"x".strip()` | `JString::strip("x")` |
+| `Math.clamp(x, a, b)` | `JMath::clamp(x, a, b)` |
 | `stream().filter(...)` | `->filter(fn($x) => ...)` |
 | `collect(Collectors.toList())` | `->toList()` |
 
@@ -281,8 +289,10 @@ AST tipada
 
 | Classe | Função |
 |---|---|
-| `JString` | `valueOf`, `concat`, `charAt`, `substring`, `indexOf`, `split` |
+| `JString` | `valueOf`, `concat`, `charAt`, `substring`, `indexOf`, `split`, `isBlank`, `strip`, `repeat`, `formatted` |
 | `JSystem` | `print`, `println` |
+| `JMath` | `floorDiv`, `floorMod`, `ceilDiv`, `signum`, `clamp` |
+| `JOptional` | `of`, `ofNullable`, `empty`, `isPresent`, `isEmpty`, `get`, `orElse`, `orElseThrow`, `ifPresent` |
 | `JArrayList` | lista com `get`, `set`, `add`, `remove`, `stream` |
 | `JHashMap` | mapa com `put`, `get`, `keySet`, `values` |
 | `JHashSet` | conjunto com `add`, `remove`, `forEach` |
@@ -331,8 +341,8 @@ make check
 ### 6.2 Números atuais
 
 ```text
-149 testes unitários
-33/33 casos no diff Java×PHP
+154 testes unitários
+34/34 casos no diff Java×PHP
 [projeto] OK
 php -l em todo o runtime
 ```
@@ -344,7 +354,7 @@ O corpus cobre: `Hello`, `Calculadora`, `FizzBuzz`, `Vetores`, `Textos`,
 `BancoLista`, `Leitura`, `MapaBanco`, `Conjunto`, `Excecoes`, `Escolhas`,
 `Enums`, `Lambdas`, `BancoMenu`, `Moderno`, `Casts`, `Classes`, `Estoque`,
 `Funcionarios`, `Variaveis`, `SwitchModerno`, `PatternInstanceof`, `Recursos`,
-`Records`, `Sealed`, `Anotacoes` e `SwitchPatterns`.
+`Records`, `Sealed`, `Anotacoes`, `SwitchPatterns` e `Biblioteca21`.
 
 O modo projeto usa `tests/project/src`, com `Main` em `package app`,
 `Conta`/`ContaCorrente` em `package model` e a exceção em `package error`.
@@ -402,7 +412,8 @@ Uma classe simples real (`BusinessException`) foi transpilada com sucesso.
 - Switch expression com patterns ainda exige `default`; sem exaustividade automática.
 - Pattern switch aceita só `->`, sem pattern com `:`.
 - Sem métodos `default`/`static`/`private` em interfaces.
-- Genéricos de usuário e tipos boxed não suportados.
+- Genéricos de usuário e tipos boxed não suportados (`Optional<Integer>`/`Map<String, Integer>` explícitos).
+- `Optional` cobre só `of`/`ofNullable`/`empty`/`isPresent`/`isEmpty`/`get`/`orElse`/`orElseThrow`/`ifPresent`.
 - Nomes simples de classe precisam ser únicos no projeto.
 - Sem `.jar`/dependências externas.
 - Fidelidade parcial em Unicode, overflow, identidade de arrays/strings.
@@ -457,7 +468,7 @@ make demo
 
 ```text
 src/transpilador/   lexer, parser, ast, semantico, codegen, cli
-runtime/php/        JString, JSystem, JCast, JClass,
+runtime/php/        JString, JSystem, JMath, JOptional, JCast, JClass,
                     JArrayList, JStream, JHashMap, JHashSet, JScanner
 examples/           programas Java de demonstração
 tests/unit/         testes unitários

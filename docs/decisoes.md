@@ -336,6 +336,22 @@ exaustividade automática, sem record patterns e sem pattern com `:`. Como o
 PHP não lança NPE automaticamente, um seletor `null` cai em `default` quando
 não há `case null`.
 
+## 10.20. Biblioteca Java 21
+
+**Decisão:** adicionar shims para `List.of`, `Set.of`, `Map.of`, `Optional`,
+`Stream.toList`, `String.isBlank`/`strip`/`stripLeading`/`stripTrailing`/
+`repeat`/`formatted` e `Math.clamp`/`floorDiv`/`floorMod`/`ceilDiv`/`signum`.
+**Motivo:** são APIs que aparecem imediatamente em código Java 21 e não
+exigiam mudar a gramática.
+**Consequência:** as fábricas viram `JArrayList::of`, `JHashSet::of`,
+`JHashMap::of`; `Optional` vira `JOptional` com tipo `Optional<T>`; métodos
+novos de `String` e `Math` viram chamadas a `JString`/`JMath`. As coleções
+de `List.of`/`Map.of`/`Set.of` são mutáveis no PHP.
+**Limitações:** `Optional` cobre só o subconjunto implementado; não há
+`map`/`flatMap`/`filter`; tipos boxed explícitos (`Optional<Integer>`,
+`Map<String, Integer>`) continuam fora; `formatted` usa a semântica de
+`sprintf` do PHP.
+
 ## 11. Sobrecarga rejeitada
 
 **Decisão:** métodos com mesmo nome são erro; construtores podem variar a

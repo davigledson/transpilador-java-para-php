@@ -392,6 +392,97 @@ def test_try_catch_finally_and_get_message() -> None:
     )
 
 
+def test_java21_library_factories_and_string_math() -> None:
+    program, _analyzer = analyze(
+        """
+        import java.util.List;
+        import java.util.Map;
+        import java.util.Optional;
+        import java.util.Set;
+        class Main {
+            public static void main(String[] args) {
+                List<String> nomes = List.of("Ana", "Bia");
+                String primeiro = nomes.get(0);
+
+                Set<String> tags = Set.of("a", "b");
+                int quantidade = tags.size();
+
+                Map<String, String> mapa = Map.of("a", "b");
+                String valor = mapa.get("a");
+
+                Optional<String> nome = Optional.of("Ana");
+                boolean presente = nome.isPresent();
+                String texto = nome.orElse("x");
+
+                Optional<String> vazio = Optional.empty();
+                boolean ausente = vazio.isEmpty();
+                String padrao = vazio.orElse("padrao");
+
+                boolean branco = "   ".isBlank();
+                String limpo = "  ana  ".strip();
+                String repetido = "ab".repeat(2);
+                String formatado = "%s".formatted("x");
+
+                int limite = Math.clamp(15, 0, 10);
+                int divisao = Math.floorDiv(7, 2);
+                int resto = Math.floorMod(7, 2);
+                int teto = Math.ceilDiv(7, 2);
+                double sinal = Math.signum(5);
+            }
+        }
+        """
+    )
+    stmts = program.classes[0].members[0].body.stmts
+    assert stmts[0].init.inferred_type.name == "ArrayList"
+    assert stmts[0].init.inferred_type.args == (ast.STRING,)
+    assert stmts[1].init.inferred_type == ast.STRING
+    assert stmts[12].init.inferred_type == ast.BOOLEAN
+    assert stmts[16].init.inferred_type == ast.INT
+    assert stmts[20].init.inferred_type == ast.DOUBLE
+
+
+def test_map_of_requires_pairs() -> None:
+    with pytest.raises(TranspileError, match="pares"):
+        analyze(
+            """
+            import java.util.Map;
+            class Main {
+                public static void main(String[] args) {
+                    Map<String, String> mapa = Map.of("a");
+                }
+            }
+            """
+        )
+
+
+def test_optional_or_else_checks_type() -> None:
+    with pytest.raises(TranspileError, match="orElse"):
+        analyze(
+            """
+            import java.util.Optional;
+            class Main {
+                public static void main(String[] args) {
+                    Optional<String> nome = Optional.of("Ana");
+                    String texto = nome.orElse(1);
+                }
+            }
+            """
+        )
+
+
+def test_string_repeat_requires_int() -> None:
+    with pytest.raises(TranspileError, match="repeat"):
+        analyze(
+            """
+            class Main {
+                public static void main(String[] args) {
+                    String texto = "ab".repeat("x");
+                }
+            }
+            """
+        )
+
+
 def test_switch_pattern_statement_and_expression() -> None:
     analyze(
         """

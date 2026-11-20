@@ -343,6 +343,45 @@ def test_cast_and_instanceof_codegen() -> None:
     assert "JCast::to($o, A::class)" in php
 
 
+def test_java21_library_codegen() -> None:
+    php = generate(
+        """
+        import java.util.List;
+        import java.util.Map;
+        import java.util.Optional;
+        import java.util.Set;
+        class Main {
+            public static void main(String[] args) {
+                List<String> nomes = List.of("Ana", "Bia");
+                Set<String> tags = Set.of("a", "b");
+                Map<String, String> mapa = Map.of("a", "b");
+                Optional<String> nome = Optional.of("Ana");
+                Optional<String> vazio = Optional.empty();
+                System.out.println(nome.isPresent());
+                System.out.println(vazio.orElse("x"));
+                System.out.println("  ana  ".strip());
+                System.out.println("ab".repeat(2));
+                System.out.println("%s".formatted("x"));
+                System.out.println(Math.clamp(15, 0, 10));
+                System.out.println(Math.floorDiv(7, 2));
+            }
+        }
+        """
+    )
+    assert 'JArrayList::of("Ana", "Bia")' in php
+    assert 'JHashSet::of("a", "b")' in php
+    assert 'JHashMap::of("a", "b")' in php
+    assert 'JOptional::of("Ana")' in php
+    assert "JOptional::empty()" in php
+    assert "$nome->isPresent()" in php
+    assert "$vazio->orElse(\"x\")" in php
+    assert 'JString::strip("  ana  ")' in php
+    assert 'JString::repeat("ab", 2)' in php
+    assert 'JString::formatted("%s", "x")' in php
+    assert "JMath::clamp(15, 0, 10)" in php
+    assert "JMath::floorDiv(7, 2)" in php
+
+
 def test_switch_pattern_codegen() -> None:
     php = generate(
         """

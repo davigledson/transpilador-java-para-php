@@ -16,6 +16,11 @@ final class JHashSet implements IteratorAggregate
         }
     }
 
+    public static function of(mixed ...$items): self
+    {
+        return new self($items);
+    }
+
     public function add(mixed $value): bool
     {
         if ($this->contains($value)) {

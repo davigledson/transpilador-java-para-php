@@ -49,9 +49,14 @@ de prometer Java inteiro.
   `++/--` e ternário.
 - `System.out.print/println`.
 - Métodos de `String` (`length`, `charAt`, `substring`, `equals`,
-  `toUpperCase`, `toLowerCase`, `trim`, `indexOf`, `contains`,
+  `toUpperCase`, `toLowerCase`, `trim`, `strip`, `stripLeading`,
+  `stripTrailing`, `isBlank`, `repeat`, `formatted`, `indexOf`, `contains`,
   `startsWith`, `endsWith`, `replace`, `split`, `isEmpty`, `compareTo`).
-- `Math.*`, `Integer.parseInt/toString`, `Double.parseDouble/toString`,
+- Biblioteca Java 21: `List.of`, `Set.of`, `Map.of`, `Optional`
+  (`of`/`ofNullable`/`empty`/`isPresent`/`isEmpty`/`get`/`orElse`/
+  `orElseThrow`/`ifPresent`) e `Stream.toList`.
+- `Math.*`, incluindo `clamp`, `floorDiv`, `floorMod`, `ceilDiv` e `signum`;
+  `Integer.parseInt/toString`, `Double.parseDouble/toString`,
   `String.valueOf`.
 - Arrays com `.length`, `new T[n]`, acesso por índice e `for-each`.
 - Runtime PHP que preserva detalhes do Java: `null` vira `"null"`,
@@ -222,7 +227,7 @@ make demo   # diferencial só do Banco
 ```
 
 O teste diferencial compila o `.java`, executa, transpila, roda `php -l`,
-executa o PHP e compara a saída. Hoje: **33/33 casos**.
+executa o PHP e compara a saída. Hoje: **34/34 casos**.
 
 O CI em `.github/workflows/ci.yml` roda `make check` em cada push/PR com
 Python, PHP 8.3 e JDK 21.
@@ -330,7 +335,9 @@ corpo de expressão, sem method references; `collect` só aceita
 `Collectors.toList()`. Records não geram `equals`/`hashCode`/`toString`
 próprios, não aceitam construtor compacto nem record patterns. Sealed é
 verificado em compilação e não tem equivalente em runtime no PHP. Anotações
-são declaradas e parseadas, mas não têm efeito em runtime.
+são declaradas e parseadas, mas não têm efeito em runtime. `Optional` cobre
+só o subconjunto listado; genéricos com tipos boxed (`Optional<Integer>`,
+`Map<String, Integer>` escrito explicitamente) continuam fora.
 Arrays multidimensionais também ficam para depois (`T[][]` no tipo, mas
 `new T[n][m]` e inicializadores `{...}` não). Interfaces aceitam só métodos
 abstratos: sem `default`, sem constantes e sem métodos `static`/`private`.
@@ -349,8 +356,8 @@ Detalhes e a matriz completa estão em [`docs/escopo.md`](docs/escopo.md).
 - [x] Lexer/parser do subconjunto
 - [x] AST + análise semântica básica
 - [x] Codegen PHP + runtime
-- [x] 33 programas de exemplo passando no diff
-- [x] 149 testes unitários
+- [x] 34 programas de exemplo passando no diff
+- [x] 154 testes unitários
 - [x] Herança simples (`extends`, `super`, override, polimorfismo)
 - [x] Interfaces e classes abstratas
 - [x] `ArrayList`/`List` + `Scanner`
@@ -365,7 +372,7 @@ Detalhes e a matriz completa estão em [`docs/escopo.md`](docs/escopo.md).
 - [x] Casts e `instanceof`
 - [x] Class literals (`X.class`)
 - [x] `package`/`import` → namespace/use PHP
-- [x] Source level Java 21 + diagnósticos de recursos não suportados
+- [x] Source level Java 21
 - [x] `var` (locals, `for` e `for-each`)
 - [x] `switch` arrow/expression + `yield`
 - [x] Pattern `instanceof` (`obj instanceof Conta c`)
@@ -374,4 +381,5 @@ Detalhes e a matriz completa estão em [`docs/escopo.md`](docs/escopo.md).
 - [x] Sealed/non-sealed/permits
 - [x] Declaração `@interface` (usos de anotação ignorados)
 - [x] Pattern matching em `switch` (`case Tipo var when ...`)
+- [x] Biblioteca Java 21 (`List.of`, `Map.of`, `Optional`, `String`/`Math`)
 - [ ] Relatório final e slides

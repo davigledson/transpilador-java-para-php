@@ -28,12 +28,14 @@ LIBRARY_TYPES = {
     "Set",
     "Stream",
     "Class",
+    "Optional",
 }
 LIST_TYPES = {"ArrayList", "List"}
 MAP_TYPES = {"HashMap", "Map"}
 SET_TYPES = {"HashSet", "Set"}
 STREAM_TYPES = {"Stream"}
 CLASS_TYPES = {"Class"}
+OPTIONAL_TYPES = {"Optional"}
 BUILTIN_INTERFACES = {"AutoCloseable", "Closeable"}
 EXCEPTION_TYPES = {
     "Throwable",
@@ -174,13 +176,18 @@ class SemanticAnalyzer:
             return t
 
         if t.args and t.name not in (
-            LIST_TYPES | MAP_TYPES | SET_TYPES | STREAM_TYPES | CLASS_TYPES
+            LIST_TYPES
+            | MAP_TYPES
+            | SET_TYPES
+            | STREAM_TYPES
+            | CLASS_TYPES
+            | OPTIONAL_TYPES
         ):
             self._error(
                 f"o tipo '{t.name}' não aceita argumentos genéricos nesta versão",
                 node,
             )
-        if t.name in LIST_TYPES | SET_TYPES | STREAM_TYPES | CLASS_TYPES:
+        if t.name in LIST_TYPES | SET_TYPES | STREAM_TYPES | CLASS_TYPES | OPTIONAL_TYPES:
             if len(t.args) > 1:
                 self._error(f"'{t.name}' espera no máximo um argumento genérico", node)
             for arg in t.args:
@@ -339,6 +346,12 @@ class SemanticAnalyzer:
     def _is_set_type(self, t: ast.JavaType) -> bool:
         return t.dims == 0 and t.name in SET_TYPES
 
+    def _is_optional_type(self, t: ast.JavaType) -> bool:
+        return t.dims == 0 and t.name in OPTIONAL_TYPES
+
+    def _optional_element_type(self, t: ast.JavaType) -> ast.JavaType:
+        return t.args[0] if t.args else ast.JavaType("Object")
+
     def _is_enum_type(self, t: ast.JavaType) -> bool:
         return (
             t.dims == 0
@@ -385,6 +398,10 @@ class SemanticAnalyzer:
                 return True
             return target.args == source.args
         if self._is_stream_type(target) and self._is_stream_type(source):
+            if not target.args or not source.args:
+                return True
+            return target.args == source.args
+        if self._is_optional_type(target) and self._is_optional_type(source):
             if not target.args or not source.args:
                 return True
             return target.args == source.args
@@ -2309,6 +2326,14 @@ class SemanticAnalyzer:
         if isinstance(target, ast.Name) and target.id == "Math":
             return self._analyze_math_call(node, method)
 
+        # List.of / Map.of / Set.of / Optional.of
+        if (
+            isinstance(target, ast.Name)
+            and target.id
+            in (LIST_TYPES | MAP_TYPES | SET_TYPES | OPTIONAL_TYPES)
+        ):
+            return self._analyze_factory_call(node, target.id, method)
+
         # super.metodo(...)
         if isinstance(target, ast.Super):
             return self._analyze_super_call(node, method)
@@ -2335,6 +2360,9 @@ class SemanticAnalyzer:
         if self._is_stream_type(target_type):
             return self._analyze_stream_call(node, method, target_type)
 
+        if self._is_optional_type(target_type):
+            return self._analyze_optional_call(node, method, target_type)
+
         if self._is_class_type(target_type):
             return self._analyze_class_call(node, method)
 
@@ -2356,6 +2384,122 @@ class SemanticAnalyzer:
             return method_info.return_type
 
         self._error(f"chamada de método em tipo não suportado: {target_type}", node)
+
+    def _common_factory_type(
+        self,
+        types: list[ast.JavaType],
+    ) -> ast.JavaType | None:
+        if not types:
+            return None
+        first = types[0]
+        if any(other != first for other in types[1:]):
+            return None
+        if not (first.dims > 0 or first.name in PRIMITIVES or self._is_reference(first)):
+            return None
+        return first
+
+    def _analyze_factory_call(
+        self,
+        node: ast.Call,
+        owner: str,
+        method: str,
+    ) -> ast.JavaType:
+        arg_types = [self.analyze_expr(arg) for arg in node.args]
+
+        if owner in OPTIONAL_TYPES:
+            if method == "empty":
+                if arg_types:
+                    self._error("Optional.empty não espera argumentos", node)
+                node.call_kind = "optional_empty"
+                return ast.JavaType("Optional")
+            if method in {"of", "ofNullable"}:
+                if len(arg_types) != 1:
+                    self._error(f"Optional.{method} espera 1 argumento", node)
+                node.call_kind = (
+                    "optional_of" if method == "of" else "optional_of_nullable"
+                )
+                value_type = arg_types[0]
+                if self._is_null(value_type):
+                    return ast.JavaType("Optional")
+                return ast.JavaType("Optional", args=(value_type,))
+            self._error(f"Optional.{method} não suportado", node)
+
+        if method != "of":
+            self._error(f"{owner}.{method} não suportado", node)
+
+        if owner in MAP_TYPES:
+            if len(arg_types) % 2 != 0:
+                self._error("Map.of espera pares chave/valor", node)
+            keys = self._common_factory_type(arg_types[0::2])
+            values = self._common_factory_type(arg_types[1::2])
+            node.call_kind = "map_of"
+            if keys is not None and values is not None:
+                return ast.JavaType("HashMap", args=(keys, values))
+            return ast.JavaType("HashMap")
+
+        element = self._common_factory_type(arg_types)
+        if owner in SET_TYPES:
+            node.call_kind = "set_of"
+            if element is not None:
+                return ast.JavaType("HashSet", args=(element,))
+            return ast.JavaType("HashSet")
+
+        node.call_kind = "list_of"
+        if element is not None:
+            return ast.JavaType("ArrayList", args=(element,))
+        return ast.JavaType("ArrayList")
+
+    def _analyze_optional_call(
+        self,
+        node: ast.Call,
+        method: str,
+        target_type: ast.JavaType,
+    ) -> ast.JavaType:
+        element = self._optional_element_type(target_type)
+
+        if method in {"isPresent", "isEmpty"}:
+            if node.args:
+                self._error(f"Optional.{method} não espera argumentos", node)
+            node.call_kind = "optional_method"
+            node.method_name = method
+            return ast.BOOLEAN
+
+        if method in {"get", "orElseThrow"}:
+            if node.args:
+                self._error(f"Optional.{method} não espera argumentos", node)
+            node.call_kind = "optional_method"
+            node.method_name = method
+            return element
+
+        if method == "orElse":
+            if len(node.args) != 1:
+                self._error("Optional.orElse espera 1 argumento", node)
+            other = self.analyze_expr(node.args[0])
+            if element.name != "Object" and not self._compatible(element, other):
+                self._error(
+                    f"Optional.orElse espera {element}, recebeu {other}",
+                    node.args[0],
+                )
+            node.call_kind = "optional_method"
+            node.method_name = method
+            return other if element.name == "Object" else element
+
+        if method == "ifPresent":
+            if len(node.args) != 1:
+                self._error("Optional.ifPresent espera 1 argumento", node)
+            self._analyze_lambda(node.args[0], [element])
+            node.call_kind = "optional_method"
+            node.method_name = method
+            return ast.VOID
+
+        if method == "toString":
+            if node.args:
+                self._error("Optional.toString não espera argumentos", node)
+            node.call_kind = "optional_method"
+            node.method_name = method
+            return ast.STRING
+
+        self._error(f"método Optional.{method} ainda não é suportado", node)
 
     def _analyze_super_ctor(self, node: ast.Call) -> ast.JavaType:
         if (
@@ -2505,6 +2649,31 @@ class SemanticAnalyzer:
             node.method_name = method
             return ast.DOUBLE
 
+        if method in {"floorDiv", "floorMod", "ceilDiv"}:
+            if len(arg_types) != 2:
+                self._error(f"Math.{method} espera 2 argumentos", node)
+            if not all(self._is_integral(t) for t in arg_types):
+                self._error(f"Math.{method} espera int", node)
+            node.call_kind = "math"
+            node.method_name = method
+            return ast.INT
+
+        if method == "signum":
+            if len(arg_types) != 1:
+                self._error("Math.signum espera 1 argumento", node)
+            node.call_kind = "math"
+            node.method_name = method
+            return ast.DOUBLE
+
+        if method == "clamp":
+            if len(arg_types) != 3:
+                self._error("Math.clamp espera 3 argumentos", node)
+            result = self._common_numeric(arg_types[0], arg_types[1], node)
+            result = self._common_numeric(result, arg_types[2], node)
+            node.call_kind = "math"
+            node.method_name = method
+            return result
+
         self._error(f"Math.{method} não suportado", node)
 
     def _analyze_string_call(self, node: ast.Call, method: str) -> ast.JavaType:
@@ -2578,6 +2747,18 @@ class SemanticAnalyzer:
             arity(1)
             expect(0, {"String"}, "String")
             result = ast.INT
+        elif method == "isBlank":
+            arity(0)
+            result = ast.BOOLEAN
+        elif method in {"strip", "stripLeading", "stripTrailing"}:
+            arity(0)
+            result = ast.STRING
+        elif method == "repeat":
+            arity(1)
+            expect(0, {"int", "char"}, "int")
+            result = ast.STRING
+        elif method == "formatted":
+            result = ast.STRING
         else:
             self._error(f"método de String não suportado: {method}", node)
 

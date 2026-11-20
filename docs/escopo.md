@@ -27,9 +27,10 @@ limitação.
 | Tipos | `int`, `double`, `boolean`, `char`, `String`, `T[]`, `void`; `long`/`float`/`byte`/`short` são normalizados |
 | Comandos | bloco, declaração local, atribuição, `if/else`, `while`, `do/while`, `for`, `for-each`, `return`, `break`, `continue` |
 | Expressões | literais, nomes, `this`, binárias, unárias, atribuição composta, ternário, acesso a campo, chamada, `new` objeto/array, índice |
-| Biblioteca | `System.out.print/println`, `String` (principais métodos), `Math`, `Integer/Double`, `String.valueOf`, `ArrayList`/`List`, `HashMap`/`Map`, `HashSet`/`Set`, `Scanner` |
+| Biblioteca | `System.out.print/println`, `String` (incluindo `isBlank`/`strip`/`repeat`/`formatted`), `Math` (`clamp`/`floorDiv`/`floorMod`/`ceilDiv`/`signum`), `Integer/Double`, `String.valueOf`, `Scanner` |
+| Java 21 library | `List.of`, `Set.of`, `Map.of`, `Optional` e `Stream.toList` |
 | Arrays | `new T[n]`, `.length`, acesso, `for-each`, valores default |
-| Runtime | `JString`, `JSystem`, `JArrayList`, `JHashMap`, `JHashSet`, `JScanner` |
+| Runtime | `JString`, `JSystem`, `JMath`, `JOptional`, `JArrayList`, `JHashMap`, `JHashSet`, `JScanner` |
 | Projeto | pasta recursiva, autoloader (`bootstrap.php`), `run.php`, `--main` |
 | Pacotes/namespaces | `package` → `namespace` PHP; `import` → `use` (incluindo `*`) |
 
@@ -56,6 +57,8 @@ limitação.
 | records | sem `equals`/`hashCode`/`toString` gerados, sem construtor compacto nem record patterns; campos de instância extras são proibidos |
 | sealed | checagem só em compilação; PHP gerado não impede extensão em runtime |
 | anotações | declaração e uso são parseados, mas sem efeito em runtime; sem validação de alvos/argumentos |
+| `Optional` | `of`, `ofNullable`, `empty`, `isPresent`, `isEmpty`, `get`, `orElse`, `orElseThrow`, `ifPresent`; sem `map`/`flatMap`/`filter`/streams |
+| `List.of`/`Map.of`/`Set.of` | coleções imutáveis do Java viram `JArrayList`/`JHashMap`/`JHashSet` mutáveis |
 | lambdas/streams | lambda só de expressão, sem method references; `collect` só `Collectors.toList()`; sem streams paralelos/infinitos |
 | modo projeto | nomes simples de classe ainda precisam ser únicos (sem aliases/namespaces duplicados); sem `.jar` e sem build incremental |
 | nomes PHP | classes com nome de palavra reservada do PHP (ex.: `Var`) precisam ser renomeadas |
@@ -98,6 +101,6 @@ limitação.
 
 ## Métricas atuais
 
-- Exemplos no diff: **33/33**
-- Testes unitários: **149**
+- Exemplos no diff: **34/34**
+- Testes unitários: **154**
 - Linhas aproximadas do transpilador: ver `wc -l src/transpilador/*.py`
