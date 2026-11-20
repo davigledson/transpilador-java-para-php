@@ -53,6 +53,8 @@ LIBRARY_TYPES = {
 RUNTIME_USES = (
     "JSystem",
     "JString",
+    "JMath",
+    "JOptional",
     "JArrayList",
     "JStream",
     "JHashMap",

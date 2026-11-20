@@ -102,5 +102,5 @@ limitação.
 ## Métricas atuais
 
 - Exemplos no diff: **34/34**
-- Testes unitários: **154**
+- Testes unitários: **155**
 - Linhas aproximadas do transpilador: ver `wc -l src/transpilador/*.py`

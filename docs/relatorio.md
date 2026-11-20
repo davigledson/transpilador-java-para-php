@@ -20,7 +20,7 @@ pattern matching em `switch`, class literals, text blocks, declaração/uso de
 anotações e `package`/`import`
 mapeados para namespace/use do PHP, além de `List.of`/`Set.of`/`Map.of`,
 `Optional` e métodos Java 21 de `String`/`Math`. O resultado é validado por
-154 testes unitários, 34 programas no teste
+155 testes unitários, 34 programas no teste
 diferencial Java×PHP e um teste de projeto multi-arquivo, todos executados
 por `make check` e pelo CI.
 
@@ -341,7 +341,7 @@ make check
 ### 6.2 Números atuais
 
 ```text
-154 testes unitários
+155 testes unitários
 34/34 casos no diff Java×PHP
 [projeto] OK
 php -l em todo o runtime
@@ -358,6 +358,9 @@ O corpus cobre: `Hello`, `Calculadora`, `FizzBuzz`, `Vetores`, `Textos`,
 
 O modo projeto usa `tests/project/src`, com `Main` em `package app`,
 `Conta`/`ContaCorrente` em `package model` e a exceção em `package error`.
+O `Main` também exercita `List.of`, `Set.of`, `Map.of`, `Optional`,
+`String.strip`/`repeat`/`formatted` e `Math.clamp` dentro de um namespace,
+garantindo os `use` corretos para `JOptional`/`JMath`.
 
 ### 6.4 Exemplos de execução
 

@@ -606,6 +606,27 @@ def test_package_namespace_codegen() -> None:
     assert "Main::main(array_slice($argv, 1));" in php
 
 
+def test_project_uses_include_java21_runtime() -> None:
+    php = generate(
+        """
+        package app;
+        import java.util.Optional;
+        class Main {
+            public static void main(String[] args) {
+                Optional<String> nome = Optional.of("Ana");
+                System.out.println(nome.get());
+                System.out.println(Math.clamp(15, 0, 10));
+            }
+        }
+        """
+    )
+    assert "namespace app;" in php
+    assert "use JOptional;" in php
+    assert "use JMath;" in php
+    assert "JOptional::of(\"Ana\")" in php
+    assert "JMath::clamp(15, 0, 10)" in php
+
+
 def test_var_codegen() -> None:
     php = generate(
         """

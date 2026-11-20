@@ -357,7 +357,7 @@ Detalhes e a matriz completa estão em [`docs/escopo.md`](docs/escopo.md).
 - [x] AST + análise semântica básica
 - [x] Codegen PHP + runtime
 - [x] 34 programas de exemplo passando no diff
-- [x] 154 testes unitários
+- [x] 155 testes unitários
 - [x] Herança simples (`extends`, `super`, override, polimorfismo)
 - [x] Interfaces e classes abstratas
 - [x] `ArrayList`/`List` + `Scanner`
