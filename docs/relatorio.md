@@ -16,9 +16,9 @@ diferenciais executando o mesmo programa em Java e em PHP.
 O subconjunto cobre classes, herança, interfaces, classes abstratas, enums,
 records, sealed types, exceções, `switch`, `ArrayList`/`HashMap`/`HashSet`,
 `Scanner`, lambdas, streams, casts, `instanceof` (com pattern binding), class
-literals, text blocks, anotações com argumentos e `package`/`import` mapeados
-para namespace/use do PHP. O resultado é validado por 134 testes unitários,
-31 programas no teste
+literals, text blocks, declaração/uso de anotações e `package`/`import`
+mapeados para namespace/use do PHP. O resultado é validado por 139 testes
+unitários, 32 programas no teste
 diferencial Java×PHP e um teste de projeto multi-arquivo, todos executados
 por `make check` e pelo CI.
 
@@ -124,6 +124,7 @@ As lacunas foram tratadas com quatro estratégias:
 | Enums | constantes, `Enum.CONSTANTE`, comparação, `switch` |
 | Records | componentes, construtor canônico, acessores, métodos, static e `implements` |
 | Sealed | `sealed`, `non-sealed`, `permits`, inferência e checagem de subtipos |
+| Anotações | declaração `@interface` com elementos/defaults; uso `@Foo(...)` ignorado |
 | Coleções | `ArrayList`/`List`, `HashMap`/`Map`, `HashSet`/`Set` |
 | Funcional | lambdas de expressão, `filter`, `map`, `forEach`, `removeIf`, `collect(Collectors.toList())`, `count`, `anyMatch` etc. |
 | Tipos | `int`, `double`, `boolean`, `char`, `String`, arrays, `void`; `long`/`float`/`byte`/`short` normalizados |
@@ -140,7 +141,7 @@ As lacunas foram tratadas com quatro estratégias:
 - Validação de exceções checadas (`throws` é ignorado) e exceções suprimidas.
 - `default`/`static`/`private` em interfaces e constantes de interface.
 - Genéricos em classes do usuário, wildcards e tipos boxed.
-- Classes internas/anônimas, `@interface`, record patterns e construtor compacto de record.
+- Classes internas/anônimas, record patterns e construtor compacto de record.
 - Fidelidade total de Unicode, overflow de inteiros e identidade de arrays/strings.
 
 ## 4. Gramática e front-end
@@ -328,8 +329,8 @@ make check
 ### 6.2 Números atuais
 
 ```text
-134 testes unitários
-31/31 casos no diff Java×PHP
+139 testes unitários
+32/32 casos no diff Java×PHP
 [projeto] OK
 php -l em todo o runtime
 ```
@@ -341,7 +342,7 @@ O corpus cobre: `Hello`, `Calculadora`, `FizzBuzz`, `Vetores`, `Textos`,
 `BancoLista`, `Leitura`, `MapaBanco`, `Conjunto`, `Excecoes`, `Escolhas`,
 `Enums`, `Lambdas`, `BancoMenu`, `Moderno`, `Casts`, `Classes`, `Estoque`,
 `Funcionarios`, `Variaveis`, `SwitchModerno`, `PatternInstanceof`, `Recursos`,
-`Records` e `Sealed`.
+`Records`, `Sealed` e `Anotacoes`.
 
 O modo projeto usa `tests/project/src`, com `Main` em `package app`,
 `Conta`/`ContaCorrente` em `package model` e a exceção em `package error`.
@@ -378,8 +379,8 @@ Foram testadas pastas reais de backend Spring. O modo projeto funcionou,
 mas os projetos param em recursos fora do subconjunto:
 
 - text blocks/anotações foram resolvidos na Fase 1;
-- depois restaram tipos externos (`TaskExecutor`, `ResponseEntity`),
-  `@interface` e APIs de framework.
+- depois restaram tipos externos (`TaskExecutor`, `ResponseEntity`) e APIs
+  de framework.
 
 Isso confirma a fronteira: o projeto não implementa semântica de framework.
 Uma classe simples real (`BusinessException`) foi transpilada com sucesso.
@@ -395,6 +396,7 @@ Uma classe simples real (`BusinessException`) foi transpilada com sucesso.
 - Sem validação de exceções checadas e sem exceções suprimidas.
 - Records sem `equals`/`hashCode`/`toString` automáticos, sem construtor compacto e sem record patterns.
 - Sealed é verificado só em compilação; o PHP gerado não impede extensão em runtime.
+- Anotações são declaradas e parseadas, mas não têm efeito em runtime.
 - Sem pattern matching em `switch`.
 - Sem métodos `default`/`static`/`private` em interfaces.
 - Genéricos de usuário e tipos boxed não suportados.
@@ -405,7 +407,7 @@ Uma classe simples real (`BusinessException`) foi transpilada com sucesso.
 ### 7.2 Trabalhos futuros
 
 - Suporte a tipos externos como classes opacas.
-- `@interface` e anotações com semântica própria.
+- Semântica própria para anotações (validação de alvos/argumentos e runtime).
 - Sobrecarga com mangling.
 - Pattern matching em `switch`.
 - Reflection mínima além de `Class`.

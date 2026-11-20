@@ -459,15 +459,35 @@ def test_switch_arrow_and_expression_syntax() -> None:
     assert isinstance(stmts[1].init.cases[1].arrow_body, ast.Block)
 
 
-@pytest.mark.parametrize(
-    ("source", "message"),
-    [
-        ("public @interface Foo { }", "@interface"),
-    ],
-)
-def test_unsupported_java21_diagnostics(source: str, message: str) -> None:
-    with pytest.raises(TranspileError, match=message):
-        parse(source)
+def test_annotation_declaration_syntax() -> None:
+    program = parse(
+        """
+        public @interface MinhaAnotacao {
+            String valor() default "";
+            int prioridade() default 0;
+            String[] tags() default {};
+        }
+
+        @MinhaAnotacao(valor = "x")
+        class A {
+            @MinhaAnotacao
+            int campo;
+        }
+        """
+    )
+    annotation = program.classes[0]
+    assert annotation.is_annotation
+    assert annotation.is_interface
+    assert [element.name for element in annotation.annotation_elements] == [
+        "valor",
+        "prioridade",
+        "tags",
+    ]
+    assert annotation.annotation_elements[0].default.value == ""
+    assert annotation.annotation_elements[1].default.value == 0
+    assert annotation.annotation_elements[2].default == []
+    assert "annotation" in program.classes[1].modifiers
+    assert "annotation" in program.classes[1].members[0].modifiers
 
 
 def test_pattern_instanceof_syntax() -> None:

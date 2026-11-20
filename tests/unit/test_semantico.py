@@ -392,6 +392,76 @@ def test_try_catch_finally_and_get_message() -> None:
     )
 
 
+def test_annotation_registration_and_usage() -> None:
+    program, analyzer = analyze(
+        """
+        public @interface MinhaAnotacao {
+            String valor() default "";
+            int prioridade() default 0;
+        }
+
+        @MinhaAnotacao(valor = "x")
+        class Main {
+            @MinhaAnotacao
+            private String nome;
+
+            @MinhaAnotacao
+            public static void main(String[] args) {
+                System.out.println("ok");
+            }
+        }
+        """
+    )
+    info = analyzer.classes["MinhaAnotacao"]
+    assert info.is_annotation
+    assert info.is_interface
+    assert [element.name for element in info.annotation_elements] == [
+        "valor",
+        "prioridade",
+    ]
+
+
+def test_annotation_rejects_duplicate_element() -> None:
+    with pytest.raises(TranspileError, match="duplicado"):
+        analyze(
+            """
+            @interface MinhaAnotacao {
+                String valor() default "";
+                int valor() default 0;
+            }
+            class Main {
+                public static void main(String[] args) { }
+            }
+            """
+        )
+
+
+def test_annotation_rejects_invalid_element_type() -> None:
+    with pytest.raises(TranspileError, match="válido"):
+        analyze(
+            """
+            @interface MinhaAnotacao {
+                void valor();
+            }
+            class Main {
+                public static void main(String[] args) { }
+            }
+            """
+        )
+
+
+def test_annotation_rejects_invalid_modifier() -> None:
+    with pytest.raises(TranspileError, match="modificador"):
+        analyze(
+            """
+            final @interface MinhaAnotacao { }
+            class Main {
+                public static void main(String[] args) { }
+            }
+            """
+        )
+
+
 def test_sealed_hierarchy() -> None:
     analyze(
         """

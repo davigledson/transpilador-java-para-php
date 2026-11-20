@@ -12,6 +12,7 @@ dotted_part    := ID | TYPEID
 
 top_decl_list  := top_decl { top_decl }
 top_decl       := class_decl | interface_decl | enum_decl | record_decl
+                | annotation_decl
 class_decl     := modifiers "class" TYPEID extends_opt implements_opt permits_opt
                   "{" class_body "}"
 interface_decl := modifiers "interface" TYPEID extends_opt permits_opt
@@ -21,6 +22,11 @@ record_decl    := modifiers "record" TYPEID "(" record_components_opt ")"
 record_components_opt := record_components | ε
 record_components := record_component { "," record_component }
 record_component := type ID
+annotation_decl := modifiers "@" "interface" TYPEID "{"
+                   { annotation_element } "}"
+annotation_element := type ID "(" ")" [ "default" annotation_value ] ";"
+annotation_value := expr
+                 | "{" [ annotation_value { "," annotation_value } ] "}"
 enum_decl      := modifiers "enum" TYPEID "{" enum_constants_opt "}"
 enum_constants_opt := enum_constants | ε
 enum_constants := enum_constant { "," enum_constant } [ "," ]
@@ -34,7 +40,7 @@ class_ref      := ID | TYPEID
 modifiers      := { modifier }
 modifier       := "public" | "private" | "protected" | "static" | "final"
                 | "abstract" | "sealed" | "non-sealed" | annotation
-annotation     := "@" ID
+annotation     := "@" ( ID | TYPEID )
 
 class_body     := { member }
 member         := modifiers member_rest

@@ -104,6 +104,8 @@ class ClassInfo:
     is_abstract: bool = False
     is_enum: bool = False
     is_record: bool = False
+    is_annotation: bool = False
+    annotation_elements: list[ast.AnnotationElement] = field(default_factory=list)
     enum_constants: list[str] = field(default_factory=list)
     package: str | None = None
     qualified_name: str = ""
@@ -702,6 +704,14 @@ class SemanticAnalyzer:
                 self._error("record não pode ser sealed nem non-sealed", cls)
         if is_enum and {"sealed", "non-sealed"} & cls.modifiers:
             self._error("sealed enum ainda não é suportado", cls)
+        if cls.is_annotation:
+            if {"final", "abstract", "sealed", "non-sealed"} & cls.modifiers:
+                self._error(
+                    f"anotação '{cls.name}' não aceita esse modificador",
+                    cls,
+                )
+            if cls.extends or cls.implements:
+                self._error("anotação não pode usar extends/implements", cls)
         if is_enum and len(set(cls.enum_constants)) != len(cls.enum_constants):
             self._error("constante de enum duplicada", cls)
         is_abstract = is_interface or (not is_enum and "abstract" in cls.modifiers)
@@ -722,6 +732,8 @@ class SemanticAnalyzer:
             is_abstract=is_abstract,
             is_enum=is_enum,
             is_record=cls.is_record,
+            is_annotation=cls.is_annotation,
+            annotation_elements=list(cls.annotation_elements),
             enum_constants=list(cls.enum_constants),
             package=package,
             qualified_name=qualified_name,
@@ -928,6 +940,10 @@ class SemanticAnalyzer:
                 )
             return
 
+        if info.is_annotation:
+            self._declare_annotation_elements(cls, info)
+            return
+
         if info.is_record:
             self._declare_record_components(cls, info)
 
@@ -1050,6 +1066,42 @@ class SemanticAnalyzer:
             self._validate_record_accessors(cls, info)
             self._validate_record_constructor(cls, info)
 
+    def _declare_annotation_elements(
+        self,
+        cls: ast.ClassDecl,
+        info: ClassInfo,
+    ) -> None:
+        seen: set[str] = set()
+        for element in cls.annotation_elements:
+            if element.name in seen:
+                self._error(
+                    f"elemento '{element.name}' duplicado na anotação {cls.name}",
+                    element,
+                )
+            seen.add(element.name)
+
+            if element.type.name == "void" and not element.type.dims:
+                self._error(
+                    f"tipo 'void' não é válido como elemento "
+                    f"da anotação {cls.name}",
+                    element,
+                )
+            element_type = self._resolve_type(element.type, element)
+            base = ast.JavaType(element_type.name, 0, args=element_type.args)
+            allowed = (
+                base.name in PRIMITIVES
+                or base.name == "String"
+                or base.name in CLASS_TYPES
+                or base.name in self.classes
+                or base.name in EXCEPTION_TYPES
+            )
+            if element_type.dims > 1 or not allowed:
+                self._error(
+                    f"tipo '{element_type}' não é válido como elemento "
+                    f"da anotação {cls.name}",
+                    element,
+                )
+
     def _declare_record_components(
         self,
         cls: ast.ClassDecl,
@@ -1165,7 +1217,7 @@ class SemanticAnalyzer:
 
     def _check_class(self, cls: ast.ClassDecl) -> None:
         info = self.classes[cls.name]
-        if info.is_enum:
+        if info.is_enum or info.is_annotation:
             return
         self.current_class = info
         self.current_method = None

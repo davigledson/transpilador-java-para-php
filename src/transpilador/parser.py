@@ -47,7 +47,6 @@ class JavaParser:
         return tok.lexpos - last_nl
 
     def parse(self, source: str, lexer: JavaLexer) -> ast.Program:
-        self._validate_unsupported(source, lexer)
         lexer.lexer.lineno = 1
         result = self.parser.parse(
             strip_annotation_arguments(source),
@@ -57,25 +56,6 @@ class JavaParser:
         if result is None:
             raise TranspileError("não foi possível gerar a AST")
         return result
-
-    def _validate_unsupported(self, source: str, lexer: JavaLexer) -> None:
-        tokens = lexer.tokenize(source)
-        data = strip_annotation_arguments(source)
-        for index, token in enumerate(tokens):
-            if (
-                token.type == "AT"
-                and index + 1 < len(tokens)
-                and tokens[index + 1].type == "INTERFACE"
-            ):
-                raise TranspileError(
-                    "@interface (declaração de anotação) ainda não é suportado",
-                    token.lineno,
-                    self._token_column(data, token.lexpos),
-                )
-
-    def _token_column(self, data: str, lexpos: int) -> int:
-        last_nl = data.rfind("\n", 0, lexpos)
-        return lexpos - last_nl
 
     # ------------------------------------------------------------------
     # Estrutura geral
@@ -180,14 +160,72 @@ class JavaParser:
         line, col = self._pos(p, 2)
         p[0] = ast.RecordComponent(type=p[1], name=p[2], line=line, col=col)
 
-    def p_top_decl_interface_annotation(self, p):
-        "top_decl : modifiers AT INTERFACE"
+    def p_top_decl_annotation(self, p):
+        "top_decl : modifiers AT INTERFACE TYPEID LBRACE annotation_body RBRACE"
         line, col = self._pos(p, 2)
-        raise TranspileError(
-            "@interface (declaração de anotação) ainda não é suportado",
-            line,
-            col,
+        p[0] = ast.ClassDecl(
+            name=p[4],
+            extends=None,
+            members=[],
+            implements=[],
+            modifiers=p[1],
+            is_interface=True,
+            is_annotation=True,
+            annotation_elements=p[6],
+            line=line,
+            col=col,
         )
+
+    def p_annotation_body_many(self, p):
+        "annotation_body : annotation_body annotation_element"
+        p[0] = p[1] + [p[2]]
+
+    def p_annotation_body_empty(self, p):
+        "annotation_body : empty"
+        p[0] = []
+
+    def p_annotation_element(self, p):
+        "annotation_element : type ID LPAREN RPAREN default_opt SEMI"
+        line, col = self._pos(p, 2)
+        p[0] = ast.AnnotationElement(
+            name=p[2],
+            type=p[1],
+            default=p[5],
+            line=line,
+            col=col,
+        )
+
+    def p_default_opt(self, p):
+        "default_opt : DEFAULT annotation_value"
+        p[0] = p[2]
+
+    def p_default_empty(self, p):
+        "default_opt : empty"
+        p[0] = None
+
+    def p_annotation_value_expr(self, p):
+        "annotation_value : expr"
+        p[0] = p[1]
+
+    def p_annotation_value_array(self, p):
+        "annotation_value : LBRACE annotation_values_opt RBRACE"
+        p[0] = p[2]
+
+    def p_annotation_values_opt(self, p):
+        "annotation_values_opt : annotation_values"
+        p[0] = p[1]
+
+    def p_annotation_values_empty(self, p):
+        "annotation_values_opt : empty"
+        p[0] = []
+
+    def p_annotation_values_many(self, p):
+        "annotation_values : annotation_values COMMA annotation_value"
+        p[0] = p[1] + [p[3]]
+
+    def p_annotation_values_one(self, p):
+        "annotation_values : annotation_value"
+        p[0] = [p[1]]
 
     # ------------------------------------------------------------------
     # Classes e interfaces
@@ -361,7 +399,8 @@ class JavaParser:
         p[0] = "non-sealed"
 
     def p_annotation(self, p):
-        "annotation : AT ID"
+        """annotation : AT ID
+                      | AT TYPEID"""
         p[0] = "annotation"
 
     def p_class_body_many(self, p):

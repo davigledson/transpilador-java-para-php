@@ -10,9 +10,10 @@ limitação.
 |---|---|
 | Estrutura | classes, campos, métodos, construtores, `this`, `new`, `static`, `final`, `public/private/protected` |
 | Sintaxe moderna | text blocks (`"""`) e anotações com argumentos (parseadas e ignoradas) |
-| Java 21 | source level 21 para o subconjunto; diagnósticos claros para `@interface`/etc. |
+| Java 21 | source level 21 para o subconjunto; recursos fora do subconjunto são rejeitados |
 | Records | componentes, construtor canônico, acessores, métodos, static e `implements` |
 | Sealed | `sealed`, `non-sealed`, `permits` e inferência de permits; checagem de subtipos |
+| Anotações | declaração `@interface` com elementos/defaults; usos `@Foo(...)` lidos e ignorados |
 | `var` | inferência em variáveis locais, `for` clássico e `for-each` |
 | `switch` 21 | statement arrow, switch expression e `yield` |
 | Casts/instanceof | casts primitivos e de referência; `instanceof` para classes/interfaces/String/arrays, com pattern binding |
@@ -54,6 +55,7 @@ limitação.
 | enums | só constantes; sem campos, métodos, `values()` ou `ordinal()` |
 | records | sem `equals`/`hashCode`/`toString` gerados, sem construtor compacto nem record patterns; campos de instância extras são proibidos |
 | sealed | checagem só em compilação; PHP gerado não impede extensão em runtime |
+| anotações | declaração e uso são parseados, mas sem efeito em runtime; sem validação de alvos/argumentos |
 | lambdas/streams | lambda só de expressão, sem method references; `collect` só `Collectors.toList()`; sem streams paralelos/infinitos |
 | modo projeto | nomes simples de classe ainda precisam ser únicos (sem aliases/namespaces duplicados); sem `.jar` e sem build incremental |
 | nomes PHP | classes com nome de palavra reservada do PHP (ex.: `Var`) precisam ser renomeadas |
@@ -95,6 +97,6 @@ limitação.
 
 ## Métricas atuais
 
-- Exemplos no diff: **31/31**
-- Testes unitários: **134**
+- Exemplos no diff: **32/32**
+- Testes unitários: **139**
 - Linhas aproximadas do transpilador: ver `wc -l src/transpilador/*.py`

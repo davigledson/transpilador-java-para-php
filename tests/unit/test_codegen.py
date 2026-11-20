@@ -343,6 +343,29 @@ def test_cast_and_instanceof_codegen() -> None:
     assert "JCast::to($o, A::class)" in php
 
 
+def test_annotation_codegen() -> None:
+    php = generate(
+        """
+        @interface MinhaAnotacao {
+            String valor() default "";
+            int prioridade() default 0;
+        }
+
+        @MinhaAnotacao(valor = "x")
+        class Main {
+            @MinhaAnotacao
+            public static void main(String[] args) {
+                System.out.println("ok");
+            }
+        }
+        """
+    )
+    assert "interface MinhaAnotacao" in php
+    assert "valor" not in php
+    assert "prioridade" not in php
+    assert "@MinhaAnotacao" not in php
+
+
 def test_sealed_codegen() -> None:
     php = generate(
         """

@@ -213,13 +213,13 @@ externos são ignorados; aliases manuais de `use` não são suportados.
 ## 10.13. Source level Java 21
 
 **Decisão:** manter o mesmo subconjunto, mas declarar e testar source level
-21, com diagnósticos explícitos para recursos modernos ainda não suportados.
+21.
 **Motivo:** o código aceito já é Java 21 válido; o que falta é sintaxe nova,
 não uma mudança no pipeline.
-**Consequência:** os testes usam `javac --release 21`; `@interface` falha com
-mensagem clara em vez de erro genérico.
-**Limitações:** não são esses recursos que estão implementados; eles apenas
-são diagnosticados.
+**Consequência:** os testes usam `javac --release 21`; recursos fora do
+subconjunto são rejeitados na análise.
+**Limitações:** o transpilador não cobre Java 21 completo; recursos como
+pattern matching em `switch` continuam fora.
 
 ## 10.14. `var`
 
@@ -241,8 +241,9 @@ implementar semântica de framework.
 **Consequência:** `@Column(name = "x", length = 150)` vira apenas
 `@Column` + espaços; text blocks viram string normal com indentação e
 escapes processados.
-**Limitações:** anotações continuam sem efeito semântico; `@interface` e
-class literals dentro de anotações não são suportados.
+**Limitações:** usos de anotação continuam sem efeito em runtime; class
+literals dentro de anotações não são suportados. A declaração `@interface`
+é tratada na seção 10.18.
 
 ## 10.10. Casts e `instanceof`
 
@@ -308,6 +309,19 @@ no mesmo pacote. O codegen emite classes/interfaces PHP normais, sem
 **Limitações:** PHP não tem equivalente de runtime, então extensão fora do
 conjunto permitido não é impedida em tempo de execução; `sealed enum` ainda
 não é suportado.
+
+## 10.18. Declaração `@interface`
+
+**Decisão:** aceitar `@interface Nome { Tipo elemento() default valor; }`,
+registrar a anotação como tipo e emitir uma interface PHP vazia; os usos
+`@Nome(...)` continuam sendo lidos e ignorados.
+**Motivo:** permite transpilar arquivos que declaram e usam anotações
+próprias sem entrar em semântica de framework ou reflection.
+**Consequência:** elementos e defaults são parseados; nomes duplicados,
+tipos inválidos (como `void`) e modificadores incompatíveis geram erro. O
+codegen não emite os elementos, só `interface Nome {}`.
+**Limitações:** anotações não têm efeito em runtime, não validam alvos nem
+argumentos de uso e não há `@Retention`/`@Target` com semântica.
 
 ## 11. Sobrecarga rejeitada
 

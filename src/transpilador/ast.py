@@ -85,10 +85,21 @@ class ClassDecl(Node):
     is_interface: bool = False
     is_enum: bool = False
     is_record: bool = False
+    is_annotation: bool = False
     enum_constants: list[str] = field(default_factory=list)
     components: list["RecordComponent"] = field(default_factory=list)
+    annotation_elements: list["AnnotationElement"] = field(default_factory=list)
     package: str | None = None
     imports: list[str] = field(default_factory=list)
+    line: int = 0
+    col: int = 0
+
+
+@dataclass
+class AnnotationElement(Node):
+    name: str
+    type: JavaType
+    default: Expr | None = None
     line: int = 0
     col: int = 0
 
