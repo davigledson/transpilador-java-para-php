@@ -216,7 +216,7 @@ externos são ignorados; aliases manuais de `use` não são suportados.
 21, com diagnósticos explícitos para recursos modernos ainda não suportados.
 **Motivo:** o código aceito já é Java 21 válido; o que falta é sintaxe nova,
 não uma mudança no pipeline.
-**Consequência:** os testes usam `javac --release 21`; `record`, `sealed` e
+**Consequência:** os testes usam `javac --release 21`; `sealed` e
 `@interface` falham com mensagem clara em vez de erro genérico.
 **Limitações:** não são esses recursos que estão implementados; eles apenas
 são diagnosticados.
@@ -278,6 +278,20 @@ reflection completa.
 `class Conta`.
 **Limitações:** sem `getMethods`/`getFields`/`newInstance`; nomes de classes
 com pacote são resolvidos via namespace/use.
+
+## 10.16. Records
+
+**Decisão:** suportar `record Nome(Tipo a, Tipo b) { ... }` com componentes,
+construtor canônico implícito, acessores `a()`/`b()`, métodos e membros
+`static`; `implements` é permitido.
+**Motivo:** records são a forma moderna de portadores de dados e aparecem com
+frequência em código Java 21.
+**Consequência:** o codegen emite `final class`, propriedades `readonly`
+inicializadas no construtor, um `__construct` canônico e um método acessor
+por componente. Um construtor canônico explícito é aceito e não é duplicado;
+campos de instância extras e construtores não canônicos são rejeitados.
+**Limitações:** sem `equals`/`hashCode`/`toString` automáticos, sem construtor
+compacto e sem record patterns; componentes não podem ser genéricos.
 
 ## 11. Sobrecarga rejeitada
 

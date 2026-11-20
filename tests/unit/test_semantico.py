@@ -392,6 +392,95 @@ def test_try_catch_finally_and_get_message() -> None:
     )
 
 
+def test_record_components_accessors_and_constructor() -> None:
+    program, _analyzer = analyze(
+        """
+        record Ponto(int x, int y) {
+            public int soma() { return x + y; }
+        }
+        class Main {
+            public static void main(String[] args) {
+                Ponto p = new Ponto(1, 2);
+                int a = p.x();
+                int b = p.soma();
+                System.out.println(a + b);
+            }
+        }
+        """
+    )
+    record = program.classes[0]
+    assert record.is_record
+    stmts = program.classes[1].members[0].body.stmts
+    assert stmts[1].init.inferred_type == ast.INT
+    assert stmts[2].init.inferred_type == ast.INT
+
+
+def test_record_rejects_instance_field() -> None:
+    with pytest.raises(TranspileError, match="campos de instância"):
+        analyze(
+            """
+            record Ponto(int x) {
+                private int y;
+            }
+            class Main {
+                public static void main(String[] args) { }
+            }
+            """
+        )
+
+
+def test_record_rejects_non_canonical_constructor() -> None:
+    with pytest.raises(TranspileError, match="construtor"):
+        analyze(
+            """
+            record Ponto(int x) {
+                public Ponto(String x) { }
+            }
+            class Main {
+                public static void main(String[] args) { }
+            }
+            """
+        )
+
+
+def test_record_rejects_duplicate_component() -> None:
+    with pytest.raises(TranspileError, match="duplicado"):
+        analyze(
+            """
+            record Ponto(int x, int x) { }
+            class Main {
+                public static void main(String[] args) { }
+            }
+            """
+        )
+
+
+def test_record_rejects_abstract() -> None:
+    with pytest.raises(TranspileError, match="abstract"):
+        analyze(
+            """
+            abstract record Ponto(int x) { }
+            class Main {
+                public static void main(String[] args) { }
+            }
+            """
+        )
+
+
+def test_record_accessor_return_type_is_checked() -> None:
+    with pytest.raises(TranspileError, match="acessador"):
+        analyze(
+            """
+            record Ponto(int x) {
+                public String x() { return "x"; }
+            }
+            class Main {
+                public static void main(String[] args) { }
+            }
+            """
+        )
+
+
 def test_try_with_resources_and_multi_catch() -> None:
     analyze(
         """

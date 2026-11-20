@@ -524,7 +524,9 @@ def collect_type_names(source: str) -> set[str]:
     tokens = lexer.tokenize(source)
     names: set[str] = set()
     for index, token in enumerate(tokens[:-1]):
-        if token.type in {"CLASS", "INTERFACE", "ENUM"} and tokens[index + 1].type == "ID":
+        if token.type in {"CLASS", "INTERFACE", "ENUM", "RECORD"} and tokens[
+            index + 1
+        ].type == "ID":
             names.add(tokens[index + 1].value)
     # Tipos de biblioteca que o transpilador conhece e traduz para o runtime.
     names.update(

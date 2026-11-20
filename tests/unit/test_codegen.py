@@ -343,6 +343,52 @@ def test_cast_and_instanceof_codegen() -> None:
     assert "JCast::to($o, A::class)" in php
 
 
+def test_record_codegen() -> None:
+    php = generate(
+        """
+        record Ponto(int x, int y) {
+            public static final int VERSAO = 1;
+            public int soma() { return x + y; }
+        }
+        class Main {
+            public static void main(String[] args) {
+                Ponto p = new Ponto(1, 2);
+                System.out.println(p.x());
+                System.out.println(Ponto.VERSAO);
+            }
+        }
+        """
+    )
+    assert "final class Ponto" in php
+    assert "public readonly int $x;" in php
+    assert "public readonly int $y;" in php
+    assert "public function __construct(int $x, int $y)" in php
+    assert "$this->x = $x;" in php
+    assert "public function x(): int" in php
+    assert "return $this->x;" in php
+    assert "public static int $VERSAO = 1;" in php
+
+
+def test_record_explicit_constructor_is_not_duplicated() -> None:
+    php = generate(
+        """
+        record Produto(String nome) {
+            public Produto(String nome) {
+                this.nome = nome;
+            }
+        }
+        class Main {
+            public static void main(String[] args) {
+                Produto p = new Produto("caneta");
+                System.out.println(p.nome());
+            }
+        }
+        """
+    )
+    assert php.count("function __construct") == 1
+    assert "final class Produto" in php
+
+
 def test_try_with_resources_and_multi_catch_codegen() -> None:
     php = generate(
         """

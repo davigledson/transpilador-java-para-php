@@ -102,6 +102,7 @@ class ClassInfo:
     is_interface: bool = False
     is_abstract: bool = False
     is_enum: bool = False
+    is_record: bool = False
     enum_constants: list[str] = field(default_factory=list)
     package: str | None = None
     qualified_name: str = ""
@@ -689,6 +690,13 @@ class SemanticAnalyzer:
             self._error("enum não pode usar extends/implements nesta versão", cls)
         if is_enum and "abstract" in cls.modifiers:
             self._error("enum não pode ser abstract", cls)
+        if cls.is_record:
+            if is_interface or is_enum:
+                self._error("record não pode ser interface nem enum", cls)
+            if cls.extends:
+                self._error("record não pode estender outra classe", cls)
+            if "abstract" in cls.modifiers:
+                self._error("record não pode ser abstract", cls)
         if is_enum and len(set(cls.enum_constants)) != len(cls.enum_constants):
             self._error("constante de enum duplicada", cls)
         is_abstract = is_interface or (not is_enum and "abstract" in cls.modifiers)
@@ -707,6 +715,7 @@ class SemanticAnalyzer:
             is_interface=is_interface,
             is_abstract=is_abstract,
             is_enum=is_enum,
+            is_record=cls.is_record,
             enum_constants=list(cls.enum_constants),
             package=package,
             qualified_name=qualified_name,
@@ -792,11 +801,20 @@ class SemanticAnalyzer:
                 )
             return
 
+        if info.is_record:
+            self._declare_record_components(cls, info)
+
         for member in cls.members:
             if isinstance(member, ast.FieldDecl):
                 if info.is_interface:
                     self._error(
                         "constantes/campos de interface ainda não são suportados",
+                        member,
+                    )
+                if info.is_record and "static" not in member.modifiers:
+                    self._error(
+                        "record não pode declarar campos de instância; "
+                        "use componentes do record",
                         member,
                     )
                 field_type = self._resolve_type(member.type, member)
@@ -900,6 +918,119 @@ class SemanticAnalyzer:
                 info.ctors.append(CtorInfo(params=params, node=member))
             else:
                 self._error("membro de classe não suportado", member)
+
+        if info.is_record:
+            self._validate_record_accessors(cls, info)
+            self._validate_record_constructor(cls, info)
+
+    def _declare_record_components(
+        self,
+        cls: ast.ClassDecl,
+        info: ClassInfo,
+    ) -> None:
+        user_accessors = {
+            member.name
+            for member in cls.members
+            if isinstance(member, ast.MethodDecl) and not member.params
+        }
+
+        for component in cls.components:
+            if component.name in info.fields:
+                self._error(
+                    f"componente '{component.name}' duplicado no record {cls.name}",
+                    component,
+                )
+            component_type = self._resolve_type(component.type, component)
+            field_node = ast.FieldDecl(
+                name=component.name,
+                type=component_type,
+                init=None,
+                modifiers={"private", "final"},
+                line=component.line,
+                col=component.col,
+            )
+            info.fields[component.name] = FieldInfo(
+                name=component.name,
+                type=component_type,
+                is_static=False,
+                node=field_node,
+            )
+            if component.name in user_accessors:
+                continue
+            method_node = ast.MethodDecl(
+                name=component.name,
+                return_type=component_type,
+                params=[],
+                body=None,
+                modifiers={"public"},
+                line=component.line,
+                col=component.col,
+            )
+            info.methods[component.name] = MethodInfo(
+                name=component.name,
+                return_type=component_type,
+                params=[],
+                is_static=False,
+                node=method_node,
+            )
+
+    def _validate_record_accessors(
+        self,
+        cls: ast.ClassDecl,
+        info: ClassInfo,
+    ) -> None:
+        for component in cls.components:
+            method = info.methods.get(component.name)
+            if method is None:
+                continue
+            field_type = info.fields[component.name].type
+            if method.params or method.return_type != field_type:
+                self._error(
+                    f"acessador '{component.name}()' do record {cls.name} "
+                    f"deve devolver {field_type}",
+                    method.node,
+                )
+
+    def _validate_record_constructor(
+        self,
+        cls: ast.ClassDecl,
+        info: ClassInfo,
+    ) -> None:
+        expected = [info.fields[component.name].type for component in cls.components]
+
+        if len(info.ctors) > 1:
+            self._error(
+                f"record {cls.name} permite apenas o construtor canônico",
+                cls,
+            )
+        if not info.ctors:
+            params = [
+                ast.Param(
+                    name=component.name,
+                    type=info.fields[component.name].type,
+                    line=component.line,
+                    col=component.col,
+                )
+                for component in cls.components
+            ]
+            node = ast.ConstructorDecl(
+                name=cls.name,
+                params=params,
+                body=ast.Block(stmts=[], line=cls.line, col=cls.col),
+                modifiers={"public"},
+                line=cls.line,
+                col=cls.col,
+            )
+            info.ctors.append(CtorInfo(params=expected, node=node))
+            return
+
+        actual = info.ctors[0].params
+        if actual != expected:
+            self._error(
+                f"construtor de {cls.name} deve receber os componentes "
+                f"({', '.join(str(t) for t in expected)})",
+                info.ctors[0].node,
+            )
 
     # ------------------------------------------------------------------
     # Checagem de classes

@@ -14,11 +14,11 @@ programas de console e pequenos projetos orientados a objetos, com testes
 diferenciais executando o mesmo programa em Java e em PHP.
 
 O subconjunto cobre classes, herança, interfaces, classes abstratas, enums,
-exceções, `switch`, `ArrayList`/`HashMap`/`HashSet`, `Scanner`, lambdas,
-streams, casts, `instanceof` (com pattern binding), class literals, text
-blocks, anotações com argumentos e `package`/`import` mapeados para
-namespace/use do PHP. O resultado é validado por 115 testes unitários,
-29 programas no teste
+records, exceções, `switch`, `ArrayList`/`HashMap`/`HashSet`, `Scanner`,
+lambdas, streams, casts, `instanceof` (com pattern binding), class literals,
+text blocks, anotações com argumentos e `package`/`import` mapeados para
+namespace/use do PHP. O resultado é validado por 123 testes unitários,
+30 programas no teste
 diferencial Java×PHP e um teste de projeto multi-arquivo, todos executados
 por `make check` e pelo CI.
 
@@ -122,6 +122,7 @@ As lacunas foram tratadas com quatro estratégias:
 | Exceções | `try/catch/finally`, `throw`, `throws` ignorado, exceções embutidas e customizadas, multi-catch e try-with-resources |
 | Controle | `if/else`, `while`, `do/while`, `for`, `for-each`, `switch`, `break`, `continue` |
 | Enums | constantes, `Enum.CONSTANTE`, comparação, `switch` |
+| Records | componentes, construtor canônico, acessores, métodos, static e `implements` |
 | Coleções | `ArrayList`/`List`, `HashMap`/`Map`, `HashSet`/`Set` |
 | Funcional | lambdas de expressão, `filter`, `map`, `forEach`, `removeIf`, `collect(Collectors.toList())`, `count`, `anyMatch` etc. |
 | Tipos | `int`, `double`, `boolean`, `char`, `String`, arrays, `void`; `long`/`float`/`byte`/`short` normalizados |
@@ -138,7 +139,7 @@ As lacunas foram tratadas com quatro estratégias:
 - Validação de exceções checadas (`throws` é ignorado) e exceções suprimidas.
 - `default`/`static`/`private` em interfaces e constantes de interface.
 - Genéricos em classes do usuário, wildcards e tipos boxed.
-- Classes internas/anônimas, records, sealed classes, `@interface`.
+- Classes internas/anônimas, sealed classes, `@interface`, record patterns e construtor compacto de record.
 - Fidelidade total de Unicode, overflow de inteiros e identidade de arrays/strings.
 
 ## 4. Gramática e front-end
@@ -326,8 +327,8 @@ make check
 ### 6.2 Números atuais
 
 ```text
-115 testes unitários
-29/29 casos no diff Java×PHP
+123 testes unitários
+30/30 casos no diff Java×PHP
 [projeto] OK
 php -l em todo o runtime
 ```
@@ -338,7 +339,8 @@ O corpus cobre: `Hello`, `Calculadora`, `FizzBuzz`, `Vetores`, `Textos`,
 `Utilitarios`, `Conta`, `Banco`, `HerancaConta`, `Animais`, `Formas`,
 `BancoLista`, `Leitura`, `MapaBanco`, `Conjunto`, `Excecoes`, `Escolhas`,
 `Enums`, `Lambdas`, `BancoMenu`, `Moderno`, `Casts`, `Classes`, `Estoque`,
-`Funcionarios`, `Variaveis`, `SwitchModerno`, `PatternInstanceof` e `Recursos`.
+`Funcionarios`, `Variaveis`, `SwitchModerno`, `PatternInstanceof`, `Recursos`
+e `Records`.
 
 O modo projeto usa `tests/project/src`, com `Main` em `package app`,
 `Conta`/`ContaCorrente` em `package model` e a exceção em `package error`.
@@ -390,6 +392,7 @@ Uma classe simples real (`BusinessException`) foi transpilada com sucesso.
 - Sem threads/concorrência.
 - Sem sobrecarga de métodos do usuário.
 - Sem validação de exceções checadas e sem exceções suprimidas.
+- Records sem `equals`/`hashCode`/`toString` automáticos, sem construtor compacto e sem record patterns.
 - Sem pattern matching em `switch`.
 - Sem métodos `default`/`static`/`private` em interfaces.
 - Genéricos de usuário e tipos boxed não suportados.

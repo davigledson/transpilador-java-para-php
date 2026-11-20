@@ -185,6 +185,25 @@ def test_try_catch_finally_and_throw_syntax() -> None:
     assert isinstance(stmt.body.stmts[0], ast.Throw)
 
 
+def test_record_syntax() -> None:
+    program = parse(
+        """
+        record Ponto(int x, int y) implements Rotulo {
+            public int soma() { return x + y; }
+        }
+        record Vazio() { }
+        interface Rotulo { int soma(); }
+        """
+    )
+    ponto = program.classes[0]
+    assert ponto.is_record
+    assert [component.name for component in ponto.components] == ["x", "y"]
+    assert ponto.implements == ["Rotulo"]
+    assert isinstance(ponto.members[0], ast.MethodDecl)
+    assert program.classes[1].is_record
+    assert program.classes[1].components == []
+
+
 def test_try_with_resources_syntax() -> None:
     program = parse(
         """
@@ -424,7 +443,6 @@ def test_switch_arrow_and_expression_syntax() -> None:
 @pytest.mark.parametrize(
     ("source", "message"),
     [
-        ("public record Ponto(int x) { }", "record"),
         ("public @interface Foo { }", "@interface"),
         ("sealed class A { }", "sealed"),
     ],

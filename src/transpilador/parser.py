@@ -62,12 +62,6 @@ class JavaParser:
         tokens = lexer.tokenize(source)
         data = strip_annotation_arguments(source)
         for index, token in enumerate(tokens):
-            if token.type == "RECORD":
-                raise TranspileError(
-                    "record ainda não é suportado; use uma classe comum",
-                    token.lineno,
-                    self._token_column(data, token.lexpos),
-                )
             if (
                 token.type == "AT"
                 and index + 1 < len(tokens)
@@ -151,13 +145,40 @@ class JavaParser:
         p[0] = p[1]
 
     def p_top_decl_record(self, p):
-        "top_decl : modifiers RECORD"
+        "top_decl : modifiers RECORD TYPEID LPAREN record_components_opt RPAREN implements_opt LBRACE class_body RBRACE"
         line, col = self._pos(p, 2)
-        raise TranspileError(
-            "record ainda não é suportado; use uma classe comum",
-            line,
-            col,
+        p[0] = ast.ClassDecl(
+            name=p[3],
+            extends=None,
+            members=p[9],
+            implements=p[7],
+            modifiers=p[1],
+            is_record=True,
+            components=p[5],
+            line=line,
+            col=col,
         )
+
+    def p_record_components_opt_some(self, p):
+        "record_components_opt : record_components"
+        p[0] = p[1]
+
+    def p_record_components_opt_empty(self, p):
+        "record_components_opt : empty"
+        p[0] = []
+
+    def p_record_components_many(self, p):
+        "record_components : record_components COMMA record_component"
+        p[0] = p[1] + [p[3]]
+
+    def p_record_components_one(self, p):
+        "record_components : record_component"
+        p[0] = [p[1]]
+
+    def p_record_component(self, p):
+        "record_component : type ID"
+        line, col = self._pos(p, 2)
+        p[0] = ast.RecordComponent(type=p[1], name=p[2], line=line, col=col)
 
     def p_top_decl_interface_annotation(self, p):
         "top_decl : modifiers AT INTERFACE"

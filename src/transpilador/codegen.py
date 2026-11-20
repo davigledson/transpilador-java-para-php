@@ -284,7 +284,9 @@ class PhpEmitter:
             self.line()
             self.current_class = None
             return
-        if cls.is_interface:
+        if cls.is_record:
+            kind = "final class"
+        elif cls.is_interface:
             kind = "interface"
         elif "abstract" in cls.modifiers:
             kind = "abstract class"
@@ -302,6 +304,21 @@ class PhpEmitter:
         self.line("{")
         self.indent += 1
 
+        user_method_names = {
+            member.name
+            for member in cls.members
+            if isinstance(member, ast.MethodDecl)
+        }
+        if cls.is_record:
+            self.emit_record_components(cls)
+            if not any(
+                isinstance(member, ast.ConstructorDecl) for member in cls.members
+            ):
+                self.emit_record_constructor(cls)
+            for component in cls.components:
+                if component.name not in user_method_names:
+                    self.emit_record_accessor(component)
+
         for member in cls.members:
             if isinstance(member, ast.FieldDecl):
                 self.emit_field(member)
@@ -314,6 +331,37 @@ class PhpEmitter:
         self.line("}")
         self.line()
         self.current_class = None
+
+    def emit_record_components(self, cls: ast.ClassDecl) -> None:
+        for component in cls.components:
+            type_str = self.php_type(component.type)
+            self.line(f"public readonly {type_str} ${component.name};")
+        if cls.components:
+            self.line()
+
+    def emit_record_constructor(self, cls: ast.ClassDecl) -> None:
+        params = ", ".join(
+            f"{self.php_type(component.type)} ${component.name}"
+            for component in cls.components
+        )
+        self.line(f"public function __construct({params})")
+        self.line("{")
+        self.indent += 1
+        for component in cls.components:
+            self.line(f"$this->{component.name} = ${component.name};")
+        self.indent -= 1
+        self.line("}")
+        self.line()
+
+    def emit_record_accessor(self, component: ast.RecordComponent) -> None:
+        return_type = self.php_type(component.type)
+        self.line(f"public function {component.name}(): {return_type}")
+        self.line("{")
+        self.indent += 1
+        self.line(f"return $this->{component.name};")
+        self.indent -= 1
+        self.line("}")
+        self.line()
 
     def emit_field(self, field: ast.FieldDecl) -> None:
         if "private" in field.modifiers:

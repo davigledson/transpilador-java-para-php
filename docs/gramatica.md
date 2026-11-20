@@ -11,11 +11,16 @@ dotted_name    := dotted_part { "." dotted_part }
 dotted_part    := ID | TYPEID
 
 top_decl_list  := top_decl { top_decl }
-top_decl       := class_decl | interface_decl | enum_decl
+top_decl       := class_decl | interface_decl | enum_decl | record_decl
 class_decl     := modifiers "class" TYPEID extends_opt implements_opt
                   "{" class_body "}"
 interface_decl := modifiers "interface" TYPEID extends_opt
                   "{" interface_body "}"
+record_decl    := modifiers "record" TYPEID "(" record_components_opt ")"
+                  implements_opt "{" class_body "}"
+record_components_opt := record_components | ε
+record_components := record_component { "," record_component }
+record_component := type ID
 enum_decl      := modifiers "enum" TYPEID "{" enum_constants_opt "}"
 enum_constants_opt := enum_constants | ε
 enum_constants := enum_constant { "," enum_constant } [ "," ]

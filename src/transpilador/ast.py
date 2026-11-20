@@ -83,9 +83,19 @@ class ClassDecl(Node):
     modifiers: set[str] = field(default_factory=set)
     is_interface: bool = False
     is_enum: bool = False
+    is_record: bool = False
     enum_constants: list[str] = field(default_factory=list)
+    components: list["RecordComponent"] = field(default_factory=list)
     package: str | None = None
     imports: list[str] = field(default_factory=list)
+    line: int = 0
+    col: int = 0
+
+
+@dataclass
+class RecordComponent(Node):
+    name: str
+    type: JavaType
     line: int = 0
     col: int = 0
 
