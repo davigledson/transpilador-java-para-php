@@ -22,6 +22,8 @@ de prometer Java inteiro.
   (`catch (A | B e)`) e try-with-resources (`try (Recurso r = ...)`).
 - `switch` clássico e Java 21: `case`, `default`, fallthrough, `break`,
   arrow (`case 1 ->`) e `switch` expression com `yield`.
+- Pattern matching em `switch`: `case Tipo var`, guardas `when`, `case null`
+  e patterns em switch expression.
 - Enums simples (`enum Status { ATIVO, BLOQUEADO }`), acesso `Status.ATIVO`,
   comparação e `switch` sobre enum.
 - Records (`record Ponto(int x, int y) { }`): componentes, construtor
@@ -97,9 +99,10 @@ O transpilador aceita o subconjunto suportado com **source level Java 21**.
 Os testes compilam com `javac --release 21` e rodam no JDK 21.
 
 Isso não significa Java 21 completo. O subconjunto aceito inclui `var`,
-`switch` arrow/expression, pattern `instanceof`, try-with-resources,
-multi-catch, records, sealed classes e `@interface`. Recursos fora do
-subconjunto, como pattern matching em `switch`, são rejeitados com erro de
+`switch` arrow/expression, pattern matching em `switch`, pattern
+`instanceof`, try-with-resources, multi-catch, records, sealed classes e
+`@interface`. Recursos fora do subconjunto, como record patterns e
+exaustividade automática de switch expression, são rejeitados com erro de
 sintaxe ou de semântica.
 
 ## Modo projeto (vários arquivos)
@@ -219,7 +222,7 @@ make demo   # diferencial só do Banco
 ```
 
 O teste diferencial compila o `.java`, executa, transpila, roda `php -l`,
-executa o PHP e compara a saída. Hoje: **32/32 casos**.
+executa o PHP e compara a saída. Hoje: **33/33 casos**.
 
 O CI em `.github/workflows/ci.yml` roda `make check` em cada push/PR com
 Python, PHP 8.3 e JDK 21.
@@ -319,7 +322,9 @@ sobrecarga de métodos, classes internas, `LinkedHashMap`/`TreeMap`/`entrySet`,
 apagados na geração.
 Exceções checadas não são validadas: `throws` é lido e ignorado.
 Try-with-resources e multi-catch são suportados. `switch`
-arrow/expression é suportado; `continue` dentro de `switch` ainda não. Enums têm só
+arrow/expression e patterns são suportados; `continue` dentro de `switch`
+ainda não. Pattern switch exige `default` em switch expression e não aceita
+`case Tipo var:` com dois-pontos. Enums têm só
 constantes: sem campos, métodos, `values()` ou `ordinal()`. Lambdas só com
 corpo de expressão, sem method references; `collect` só aceita
 `Collectors.toList()`. Records não geram `equals`/`hashCode`/`toString`
@@ -344,8 +349,8 @@ Detalhes e a matriz completa estão em [`docs/escopo.md`](docs/escopo.md).
 - [x] Lexer/parser do subconjunto
 - [x] AST + análise semântica básica
 - [x] Codegen PHP + runtime
-- [x] 32 programas de exemplo passando no diff
-- [x] 139 testes unitários
+- [x] 33 programas de exemplo passando no diff
+- [x] 149 testes unitários
 - [x] Herança simples (`extends`, `super`, override, polimorfismo)
 - [x] Interfaces e classes abstratas
 - [x] `ArrayList`/`List` + `Scanner`
@@ -368,4 +373,5 @@ Detalhes e a matriz completa estão em [`docs/escopo.md`](docs/escopo.md).
 - [x] Records (componentes, construtor canônico e acessores)
 - [x] Sealed/non-sealed/permits
 - [x] Declaração `@interface` (usos de anotação ignorados)
+- [x] Pattern matching em `switch` (`case Tipo var when ...`)
 - [ ] Relatório final e slides

@@ -87,10 +87,13 @@ catch_clause   := "catch" "(" type ID ")" block
 type_list      := type { "|" type }
 resources      := local_decl { ";" local_decl } [ ";" ]
 switch_body    := { switch_clause }
-switch_clause  := "case" expr ":" stmt_list
+switch_clause  := "case" case_label ":" stmt_list
                 | "default" ":" stmt_list
-                | "case" expr "->" arrow_body
+                | "case" case_label "->" arrow_body
+                | "case" case_label "when" expr "->" arrow_body
                 | "default" "->" arrow_body
+case_label     := expr | case_pattern
+case_pattern   := type ID
 arrow_body     := expr ";" | block | "throw" expr ";"
 block          := "{" { stmt } "}"
 local_decl     := type ID [ "=" expr ] | "var" ID "=" expr

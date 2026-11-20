@@ -674,18 +674,54 @@ class PhpEmitter:
         else:
             self.emit_stmt(node)
 
+    def is_default_case(self, case: ast.SwitchCase) -> bool:
+        return case.value is None and case.pattern is None
+
+    def emit_case_condition(self, case: ast.SwitchCase, temp: str) -> str:
+        if case.pattern is not None:
+            pattern_type = case.pattern.inferred_type
+            variable = f"${case.pattern.name}"
+            if pattern_type.dims > 0:
+                condition = (
+                    f"(({variable} = {temp}) !== null && "
+                    f"is_array({variable}))"
+                )
+            elif pattern_type.name == "String":
+                condition = (
+                    f"(({variable} = {temp}) !== null && "
+                    f"is_string({variable}))"
+                )
+            else:
+                class_ref = self.php_class_ref(pattern_type.name)
+                condition = (
+                    f"(({variable} = {temp}) instanceof {class_ref})"
+                )
+            if case.guard is not None:
+                return f"({condition} && ({self.emit_expr(case.guard)}))"
+            return condition
+
+        if case.value is None:
+            self.error("case sem label no gerador", case)
+        if isinstance(case.value, ast.Literal) and case.value.kind == "null":
+            return f"({temp} === null)"
+        return f"({temp} === {self.emit_expr(case.value)})"
+
     def emit_arrow_switch_statement(self, node: ast.Switch) -> None:
         temp = f"$__switch{self.switch_counter}"
         self.switch_counter += 1
         self.line(f"{temp} = {self.emit_expr(node.expr)};")
 
-        value_cases = [case for case in node.cases if case.value is not None]
-        default_case = next((case for case in node.cases if case.value is None), None)
+        value_cases = [
+            case for case in node.cases if not self.is_default_case(case)
+        ]
+        default_case = next(
+            (case for case in node.cases if self.is_default_case(case)), None
+        )
 
         for index, case in enumerate(value_cases):
-            value = self.emit_expr(case.value)
+            condition = self.emit_case_condition(case, temp)
             prefix = "if" if index == 0 else "} else if"
-            self.line(f"{prefix} ({temp} === {value}) {{")
+            self.line(f"{prefix} {condition} {{")
             self.indent += 1
             self.emit_arrow_body(case.arrow_body)
             self.indent -= 1
@@ -723,11 +759,11 @@ class PhpEmitter:
         self.line("switch (true) {")
         self.indent += 1
         for case in node.cases:
-            if case.value is None:
+            if self.is_default_case(case):
                 self.line("default:")
             else:
-                value = self.emit_expr(case.value)
-                self.line(f"case ({temp} === {value}):")
+                condition = self.emit_case_condition(case, temp)
+                self.line(f"case {condition}:")
             self.indent += 1
             self.switch_result_vars.append(result)
             if case.arrow:

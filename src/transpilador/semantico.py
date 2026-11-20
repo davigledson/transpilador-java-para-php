@@ -1616,12 +1616,73 @@ class SemanticAnalyzer:
             self._is_integral(switch_type)
             or (switch_type.dims == 0 and switch_type.name == "String")
             or is_enum
+            or self._is_reference(switch_type)
         ):
             self._error(
-                f"switch espera int, char, String ou enum, mas recebeu {switch_type}",
+                f"switch espera int, char, String, enum ou referência, "
+                f"mas recebeu {switch_type}",
                 node.expr,
             )
         return switch_type, is_enum
+
+    def _is_null_literal(self, node: ast.Expr) -> bool:
+        return isinstance(node, ast.Literal) and node.kind == "null"
+
+    def _pattern_compatible(
+        self,
+        selector: ast.JavaType,
+        pattern: ast.JavaType,
+    ) -> bool:
+        if selector.dims > 0:
+            return pattern.dims == selector.dims and pattern.name == selector.name
+        if selector.name == "String":
+            return pattern.dims == 0 and pattern.name == "String"
+        if selector.name in self.classes:
+            if pattern.dims == 0 and pattern.name in self.classes:
+                return self._is_subtype(
+                    pattern.name, selector.name
+                ) or self._is_subtype(selector.name, pattern.name)
+            return False
+        if selector.name in EXCEPTION_TYPES:
+            if pattern.dims > 0 or pattern.name not in EXCEPTION_TYPES:
+                return False
+            return self._is_subtype(
+                pattern.name, selector.name
+            ) or self._is_subtype(selector.name, pattern.name)
+        return False
+
+    def _check_case_pattern(
+        self,
+        case: ast.SwitchCase,
+        switch_type: ast.JavaType,
+        seen_patterns: set[str],
+    ) -> None:
+        assert case.pattern is not None
+        pattern = case.pattern
+        if not case.arrow:
+            self._error("case com pattern exige '->'", case)
+        if not self._is_reference(switch_type):
+            self._error(
+                "pattern switch exige um seletor de tipo referência",
+                case,
+            )
+        pattern_type = self._resolve_type(pattern.type, pattern)
+        if pattern_type.dims == 0 and pattern_type.name in PRIMITIVES:
+            self._error("pattern não pode usar tipo primitivo", pattern)
+        if not self._is_reference(pattern_type):
+            self._error(f"pattern inválido: {pattern_type}", pattern)
+        if not self._pattern_compatible(switch_type, pattern_type):
+            self._error(
+                f"pattern {pattern_type} não é compatível com o seletor "
+                f"{switch_type}",
+                pattern,
+            )
+        key = str(pattern_type)
+        if case.guard is None:
+            if key in seen_patterns:
+                self._error(f"pattern duplicado: {pattern_type}", pattern)
+            seen_patterns.add(key)
+        pattern.inferred_type = pattern_type
 
     def _check_switch_values(
         self,
@@ -1632,14 +1693,28 @@ class SemanticAnalyzer:
         seen_default = False
         has_arrow = False
         has_classic = False
+        seen_null = False
+        seen_patterns: set[str] = set()
 
         for case in node.cases:
             has_arrow = has_arrow or case.arrow
             has_classic = has_classic or not case.arrow
-            if case.value is None:
+            if case.pattern is not None:
+                self._check_case_pattern(case, switch_type, seen_patterns)
+            elif case.value is None:
                 if seen_default:
                     self._error("switch com mais de um default", case)
                 seen_default = True
+            elif self._is_null_literal(case.value):
+                if not self._is_reference(switch_type):
+                    self._error(
+                        "case null exige um seletor de tipo referência",
+                        case.value,
+                    )
+                if seen_null:
+                    self._error("switch com mais de um case null", case)
+                seen_null = True
+                case.value.inferred_type = ast.NULL
             elif is_enum and isinstance(case.value, ast.Name):
                 enum_info = self.classes[switch_type.name]
                 if case.value.id not in enum_info.enum_constants:
@@ -1657,6 +1732,8 @@ class SemanticAnalyzer:
                         f"case incompatível com switch {switch_type}: {value_type}",
                         case.value,
                     )
+            if case.guard is not None and case.pattern is None:
+                self._error("'when' só pode ser usado com pattern", case.guard)
 
         if has_arrow and has_classic:
             self._error(
@@ -1685,7 +1762,21 @@ class SemanticAnalyzer:
 
         self.switch_depth += 1
         for case in node.cases:
-            if has_arrow:
+            if case.pattern is not None:
+                self._push_scope()
+                self._declare(
+                    case.pattern.name,
+                    case.pattern.inferred_type,
+                    case.pattern,
+                )
+                self._check_case_guard(case)
+                if has_arrow:
+                    self._check_arrow_body(case.arrow_body, case)
+                else:
+                    for stmt in case.stmts:
+                        self._check_stmt(stmt)
+                self._pop_scope()
+            elif has_arrow:
                 self._check_arrow_body(case.arrow_body, case)
             else:
                 for stmt in case.stmts:
@@ -1707,20 +1798,18 @@ class SemanticAnalyzer:
         self.yield_types_stack.append([])
         try:
             for case in node.cases:
-                if case.arrow:
-                    body = case.arrow_body
-                    if isinstance(body, ast.Block):
-                        self._check_stmt(body)
-                    elif isinstance(body, ast.Throw):
-                        self._check_stmt(body)
-                    elif isinstance(body, ast.Expr):
-                        result_type = self.analyze_expr(body)
-                        self.yield_types_stack[-1].append(result_type)
-                    else:
-                        self._error("corpo de case arrow inválido", case)
+                if case.pattern is not None:
+                    self._push_scope()
+                    self._declare(
+                        case.pattern.name,
+                        case.pattern.inferred_type,
+                        case.pattern,
+                    )
+                    self._check_case_guard(case)
+                    self._check_switch_expression_arm(case)
+                    self._pop_scope()
                 else:
-                    for stmt in case.stmts:
-                        self._check_stmt(stmt)
+                    self._check_switch_expression_arm(case)
             result_types = self.yield_types_stack[-1]
         finally:
             self.yield_types_stack.pop()
@@ -1733,10 +1822,31 @@ class SemanticAnalyzer:
             result = self._common_type(result, other, node)
         return result
 
+    def _check_case_guard(self, case: ast.SwitchCase) -> None:
+        if case.guard is None:
+            return
+        cond = self.analyze_expr(case.guard)
+        if not self._is_boolean(cond):
+            self._error(
+                f"condição 'when' deve ser boolean, mas é {cond}",
+                case.guard,
+            )
 
-        result = self._analyze_expr(node)
-        node.inferred_type = result
-        return result
+    def _check_switch_expression_arm(self, case: ast.SwitchCase) -> None:
+        if case.arrow:
+            body = case.arrow_body
+            if isinstance(body, ast.Block):
+                self._check_stmt(body)
+            elif isinstance(body, ast.Throw):
+                self._check_stmt(body)
+            elif isinstance(body, ast.Expr):
+                result_type = self.analyze_expr(body)
+                self.yield_types_stack[-1].append(result_type)
+            else:
+                self._error("corpo de case arrow inválido", case)
+        else:
+            for stmt in case.stmts:
+                self._check_stmt(stmt)
 
     def analyze_expr(self, node: ast.Expr) -> ast.JavaType:
         result = self._analyze_expr(node)

@@ -716,9 +716,16 @@ class JavaParser:
         p[0] = []
 
     def p_switch_clause_case(self, p):
-        "switch_clause : CASE expr COLON stmt_list"
+        "switch_clause : CASE case_label COLON stmt_list"
         line, col = self._pos(p, 1)
-        p[0] = ast.SwitchCase(value=p[2], stmts=p[4], line=line, col=col)
+        value, pattern = p[2]
+        p[0] = ast.SwitchCase(
+            value=value,
+            pattern=pattern,
+            stmts=p[4],
+            line=line,
+            col=col,
+        )
 
     def p_switch_clause_default(self, p):
         "switch_clause : DEFAULT COLON stmt_list"
@@ -726,15 +733,44 @@ class JavaParser:
         p[0] = ast.SwitchCase(value=None, stmts=p[3], line=line, col=col)
 
     def p_switch_clause_case_arrow(self, p):
-        "switch_clause : CASE expr ARROW arrow_body"
+        "switch_clause : CASE case_label ARROW arrow_body"
         line, col = self._pos(p, 1)
+        value, pattern = p[2]
         p[0] = ast.SwitchCase(
-            value=p[2],
+            value=value,
+            pattern=pattern,
             arrow=True,
             arrow_body=p[4],
             line=line,
             col=col,
         )
+
+    def p_switch_clause_case_arrow_guard(self, p):
+        "switch_clause : CASE case_label WHEN expr ARROW arrow_body"
+        line, col = self._pos(p, 1)
+        value, pattern = p[2]
+        p[0] = ast.SwitchCase(
+            value=value,
+            pattern=pattern,
+            guard=p[4],
+            arrow=True,
+            arrow_body=p[6],
+            line=line,
+            col=col,
+        )
+
+    def p_case_label_expr(self, p):
+        "case_label : expr"
+        p[0] = (p[1], None)
+
+    def p_case_label_pattern(self, p):
+        "case_label : case_pattern"
+        p[0] = (None, p[1])
+
+    def p_case_pattern(self, p):
+        "case_pattern : type ID"
+        line, col = self._pos(p, 2)
+        p[0] = ast.TypePattern(type=p[1], name=p[2], line=line, col=col)
 
     def p_switch_clause_default_arrow(self, p):
         "switch_clause : DEFAULT ARROW arrow_body"

@@ -145,8 +145,7 @@ fallthrough e `break`) para `int`, `char` e `String`.
 **Consequência:** o gerador avalia a expressão uma vez em `$__switchN` e usa
 `switch (true)` com comparações `===`, preservando a semântica estrita do
 Java para `String`/`char`.
-**Limitações:** sem labels, `continue` dentro do `switch` e pattern matching
-em `switch`.
+**Limitações:** sem labels e sem `continue` dentro do `switch`.
 
 ## 10.15. `switch` Java 21
 
@@ -156,8 +155,7 @@ aparecem em código Java 21.
 **Consequência:** statement arrow vira `if/else if`; switch expression usa
 uma variável temporária e `switch (true)`; `yield` atribui ao resultado e
 quebra o switch. `default` é obrigatório nesta versão.
-**Limitações:** sem pattern matching em `switch`, labels ou `continue`
-dentro do switch.
+**Limitações:** sem labels ou `continue` dentro do switch.
 
 ## 10.6. Enums simples
 
@@ -218,8 +216,8 @@ externos são ignorados; aliases manuais de `use` não são suportados.
 não uma mudança no pipeline.
 **Consequência:** os testes usam `javac --release 21`; recursos fora do
 subconjunto são rejeitados na análise.
-**Limitações:** o transpilador não cobre Java 21 completo; recursos como
-pattern matching em `switch` continuam fora.
+**Limitações:** o transpilador não cobre Java 21 completo; record patterns
+e exaustividade automática continuam fora.
 
 ## 10.14. `var`
 
@@ -266,7 +264,7 @@ ramo verdadeiro do `if`/`while` e à direita de `&&`.
 (`($c = $obj) instanceof Conta`); a análise semântica declara o binding só no
 escopo em que ele é garantido.
 **Limitações:** sem binding em `||`, em condições negadas ou fora do ramo
-verdadeiro; sem pattern matching em `switch`.
+verdadeiro.
 
 ## 10.11. Class literals
 
@@ -322,6 +320,21 @@ tipos inválidos (como `void`) e modificadores incompatíveis geram erro. O
 codegen não emite os elementos, só `interface Nome {}`.
 **Limitações:** anotações não têm efeito em runtime, não validam alvos nem
 argumentos de uso e não há `@Retention`/`@Target` com semântica.
+
+## 10.19. Pattern matching em `switch`
+
+**Decisão:** aceitar `case Tipo var`, guardas `when` e `case null` em cases
+arrow, tanto em statements quanto em switch expressions.
+**Motivo:** é o recurso de Java 21 que fecha o padrão de polimorfismo com
+sealed/records.
+**Consequência:** o codegen usa `instanceof` e atribui a variável na própria
+condição; guardas entram no mesmo `if`/`case`; `case null` vira `=== null`.
+O binding existe no guard e no corpo do braço. Patterns incompatíveis,
+patterns duplicados sem guarda e `when` em case constante são rejeitados.
+**Limitações:** switch expression com patterns ainda exige `default`; sem
+exaustividade automática, sem record patterns e sem pattern com `:`. Como o
+PHP não lança NPE automaticamente, um seletor `null` cai em `default` quando
+não há `case null`.
 
 ## 11. Sobrecarga rejeitada
 

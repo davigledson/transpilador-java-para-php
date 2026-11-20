@@ -185,6 +185,39 @@ def test_try_catch_finally_and_throw_syntax() -> None:
     assert isinstance(stmt.body.stmts[0], ast.Throw)
 
 
+def test_switch_pattern_syntax() -> None:
+    program = parse(
+        """
+        class A {
+            void m(Forma f) {
+                switch (f) {
+                    case Circulo c when c.raio() > 1 -> System.out.println("grande");
+                    case Circulo c -> System.out.println("circulo");
+                    case null -> System.out.println("nulo");
+                    default -> System.out.println("outro");
+                }
+                String s = switch (f) {
+                    case Circulo c -> "C";
+                    case null -> "N";
+                    default -> "?";
+                };
+            }
+        }
+        interface Forma { }
+        class Circulo implements Forma { double raio() { return 1.0; } }
+        """
+    )
+    switch_stmt = program.classes[0].members[0].body.stmts[0]
+    assert isinstance(switch_stmt, ast.Switch)
+    assert switch_stmt.cases[0].pattern.type.name == "Circulo"
+    assert switch_stmt.cases[0].pattern.name == "c"
+    assert switch_stmt.cases[0].guard is not None
+    assert switch_stmt.cases[2].value.kind == "null"
+    expression = program.classes[0].members[0].body.stmts[1].init
+    assert isinstance(expression, ast.SwitchExpression)
+    assert expression.cases[0].pattern.name == "c"
+
+
 def test_sealed_and_non_sealed_syntax() -> None:
     program = parse(
         """

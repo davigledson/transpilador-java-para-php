@@ -343,6 +343,38 @@ def test_cast_and_instanceof_codegen() -> None:
     assert "JCast::to($o, A::class)" in php
 
 
+def test_switch_pattern_codegen() -> None:
+    php = generate(
+        """
+        interface Forma { }
+        class Circulo implements Forma {
+            double raio() { return 1.0; }
+        }
+        class Main {
+            public static void main(String[] args) {
+                Forma f = new Circulo();
+                switch (f) {
+                    case Circulo c when c.raio() > 1 -> System.out.println("grande");
+                    case Circulo c -> System.out.println("circulo");
+                    case null -> System.out.println("nulo");
+                    default -> System.out.println("outro");
+                }
+                String s = switch (f) {
+                    case Circulo c -> "C";
+                    case null -> "N";
+                    default -> "?";
+                };
+            }
+        }
+        """
+    )
+    assert "(($c = $__switch0) instanceof Circulo)" in php
+    assert "&& (($c->raio() > 1))" in php
+    assert "$__switch0 === null" in php
+    assert "case (($c = $__switch1) instanceof Circulo):" in php
+    assert "$__switchResult" in php
+
+
 def test_annotation_codegen() -> None:
     php = generate(
         """

@@ -15,7 +15,7 @@ limitação.
 | Sealed | `sealed`, `non-sealed`, `permits` e inferência de permits; checagem de subtipos |
 | Anotações | declaração `@interface` com elementos/defaults; usos `@Foo(...)` lidos e ignorados |
 | `var` | inferência em variáveis locais, `for` clássico e `for-each` |
-| `switch` 21 | statement arrow, switch expression e `yield` |
+| `switch` 21 | statement arrow, switch expression, `yield` e pattern matching (`case Tipo var`, `when`, `case null`) |
 | Casts/instanceof | casts primitivos e de referência; `instanceof` para classes/interfaces/String/arrays, com pattern binding |
 | Class literals | `X.class`, `int.class`, `String.class`; `getName`, `getSimpleName`, `isInstance`, `toString` |
 | Herança | `extends` simples, `super(...)`, `super.metodo(...)`, override, polimorfismo |
@@ -51,7 +51,7 @@ limitação.
 | exceções | sem checagem de exceções checadas; `printStackTrace` vai para stderr |
 | try-with-resources | um ou mais recursos (inclusive `var`), fechamento em ordem inversa antes de `catch`/`finally` |
 | multi-catch | `catch (A \| B e)` com tipos de exceção não relacionados; o parâmetro recebe o supertipo comum |
-| `switch` | `continue` dentro do switch, labels e pattern matching em `switch` |
+| `switch` | `continue` dentro do switch, labels, pattern com `:` (só `->`) e exaustividade automática |
 | enums | só constantes; sem campos, métodos, `values()` ou `ordinal()` |
 | records | sem `equals`/`hashCode`/`toString` gerados, sem construtor compacto nem record patterns; campos de instância extras são proibidos |
 | sealed | checagem só em compilação; PHP gerado não impede extensão em runtime |
@@ -74,7 +74,8 @@ limitação.
 - Validação de exceções checadas (`throws` é ignorado) e exceções suprimidas.
 - Nomes simples duplicados em pacotes diferentes e aliases de `use`.
 - Spring/JPA/Lombok e reflection completa (`getMethods`, `getFields` etc.).
-- `continue` dentro de `switch`, labels e pattern matching em `switch`.
+- `continue` dentro de `switch`, labels e pattern com `:` (patterns exigem `->`).
+- Record patterns e exaustividade automática de switch expression.
 - Sobrecarga de métodos (construtores podem ter aridade diferente).
 - `LinkedHashMap`/`TreeMap`/`entrySet`, `StringBuilder`, `ArrayList` além dos métodos listados.
 - Genéricos: só listas, mapas e sets; sem tipos boxed (`Integer` etc.).
@@ -97,6 +98,6 @@ limitação.
 
 ## Métricas atuais
 
-- Exemplos no diff: **32/32**
-- Testes unitários: **139**
+- Exemplos no diff: **33/33**
+- Testes unitários: **149**
 - Linhas aproximadas do transpilador: ver `wc -l src/transpilador/*.py`

@@ -15,10 +15,11 @@ diferenciais executando o mesmo programa em Java e em PHP.
 
 O subconjunto cobre classes, herança, interfaces, classes abstratas, enums,
 records, sealed types, exceções, `switch`, `ArrayList`/`HashMap`/`HashSet`,
-`Scanner`, lambdas, streams, casts, `instanceof` (com pattern binding), class
-literals, text blocks, declaração/uso de anotações e `package`/`import`
-mapeados para namespace/use do PHP. O resultado é validado por 139 testes
-unitários, 32 programas no teste
+`Scanner`, lambdas, streams, casts, `instanceof` (com pattern binding),
+pattern matching em `switch`, class literals, text blocks, declaração/uso de
+anotações e `package`/`import`
+mapeados para namespace/use do PHP. O resultado é validado por 149 testes
+unitários, 33 programas no teste
 diferencial Java×PHP e um teste de projeto multi-arquivo, todos executados
 por `make check` e pelo CI.
 
@@ -121,6 +122,7 @@ As lacunas foram tratadas com quatro estratégias:
 | Interfaces/abstratas | `interface`, `implements` múltiplo, classes abstratas, métodos abstratos |
 | Exceções | `try/catch/finally`, `throw`, `throws` ignorado, exceções embutidas e customizadas, multi-catch e try-with-resources |
 | Controle | `if/else`, `while`, `do/while`, `for`, `for-each`, `switch`, `break`, `continue` |
+| Switch patterns | `case Tipo var`, guardas `when`, `case null` e switch expression |
 | Enums | constantes, `Enum.CONSTANTE`, comparação, `switch` |
 | Records | componentes, construtor canônico, acessores, métodos, static e `implements` |
 | Sealed | `sealed`, `non-sealed`, `permits`, inferência e checagem de subtipos |
@@ -329,8 +331,8 @@ make check
 ### 6.2 Números atuais
 
 ```text
-139 testes unitários
-32/32 casos no diff Java×PHP
+149 testes unitários
+33/33 casos no diff Java×PHP
 [projeto] OK
 php -l em todo o runtime
 ```
@@ -342,7 +344,7 @@ O corpus cobre: `Hello`, `Calculadora`, `FizzBuzz`, `Vetores`, `Textos`,
 `BancoLista`, `Leitura`, `MapaBanco`, `Conjunto`, `Excecoes`, `Escolhas`,
 `Enums`, `Lambdas`, `BancoMenu`, `Moderno`, `Casts`, `Classes`, `Estoque`,
 `Funcionarios`, `Variaveis`, `SwitchModerno`, `PatternInstanceof`, `Recursos`,
-`Records`, `Sealed` e `Anotacoes`.
+`Records`, `Sealed`, `Anotacoes` e `SwitchPatterns`.
 
 O modo projeto usa `tests/project/src`, com `Main` em `package app`,
 `Conta`/`ContaCorrente` em `package model` e a exceção em `package error`.
@@ -397,7 +399,8 @@ Uma classe simples real (`BusinessException`) foi transpilada com sucesso.
 - Records sem `equals`/`hashCode`/`toString` automáticos, sem construtor compacto e sem record patterns.
 - Sealed é verificado só em compilação; o PHP gerado não impede extensão em runtime.
 - Anotações são declaradas e parseadas, mas não têm efeito em runtime.
-- Sem pattern matching em `switch`.
+- Switch expression com patterns ainda exige `default`; sem exaustividade automática.
+- Pattern switch aceita só `->`, sem pattern com `:`.
 - Sem métodos `default`/`static`/`private` em interfaces.
 - Genéricos de usuário e tipos boxed não suportados.
 - Nomes simples de classe precisam ser únicos no projeto.
@@ -409,7 +412,7 @@ Uma classe simples real (`BusinessException`) foi transpilada com sucesso.
 - Suporte a tipos externos como classes opacas.
 - Semântica própria para anotações (validação de alvos/argumentos e runtime).
 - Sobrecarga com mangling.
-- Pattern matching em `switch`.
+- Record patterns e exaustividade automática de switch expression.
 - Reflection mínima além de `Class`.
 - Melhor fidelidade de `char`/UTF-16 e overflow.
 - Build incremental e cache de análise.

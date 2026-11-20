@@ -275,11 +275,21 @@ class Throw(Node):
 
 
 @dataclass
+class TypePattern(Node):
+    type: JavaType
+    name: str
+    line: int = 0
+    col: int = 0
+
+
+@dataclass
 class SwitchCase(Node):
     value: Expr | None
     stmts: list[Node] = field(default_factory=list)
     arrow_body: Node | None = None
     arrow: bool = False
+    pattern: TypePattern | None = None
+    guard: Expr | None = None
     line: int = 0
     col: int = 0
 

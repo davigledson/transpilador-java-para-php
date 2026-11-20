@@ -392,6 +392,166 @@ def test_try_catch_finally_and_get_message() -> None:
     )
 
 
+def test_switch_pattern_statement_and_expression() -> None:
+    analyze(
+        """
+        interface Forma { }
+        class Circulo implements Forma {
+            double raio() { return 1.0; }
+        }
+        class Quadrado implements Forma { }
+        class Main {
+            public static void main(String[] args) {
+                Forma f = new Circulo();
+                switch (f) {
+                    case Circulo c when c.raio() > 1 -> System.out.println("grande");
+                    case Circulo c -> System.out.println(c.raio());
+                    case Quadrado q -> System.out.println("quadrado");
+                    case null -> System.out.println("nulo");
+                    default -> System.out.println("outro");
+                }
+                String nome = switch (f) {
+                    case Circulo c -> "C";
+                    case null -> "N";
+                    default -> "?";
+                };
+                System.out.println(nome);
+            }
+        }
+        """
+    )
+
+
+def test_switch_pattern_must_be_compatible() -> None:
+    with pytest.raises(TranspileError, match="compatível"):
+        analyze(
+            """
+            interface Forma { }
+            class Circulo implements Forma { }
+            class Main {
+                public static void main(String[] args) {
+                    Circulo c = new Circulo();
+                    switch (c) {
+                        case String s -> System.out.println(s);
+                        default -> System.out.println("x");
+                    }
+                }
+            }
+            """
+        )
+
+
+def test_switch_pattern_rejects_primitive_selector() -> None:
+    with pytest.raises(TranspileError, match="referência"):
+        analyze(
+            """
+            class Main {
+                public static void main(String[] args) {
+                    int x = 1;
+                    switch (x) {
+                        case String s -> System.out.println(s);
+                        default -> System.out.println("x");
+                    }
+                }
+            }
+            """
+        )
+
+
+def test_switch_pattern_rejects_duplicate_unguarded() -> None:
+    with pytest.raises(TranspileError, match="duplicado"):
+        analyze(
+            """
+            interface Forma { }
+            class Circulo implements Forma { }
+            class Main {
+                public static void main(String[] args) {
+                    Forma f = new Circulo();
+                    switch (f) {
+                        case Circulo a -> System.out.println("a");
+                        case Circulo b -> System.out.println("b");
+                        default -> System.out.println("x");
+                    }
+                }
+            }
+            """
+        )
+
+
+def test_switch_pattern_guard_must_be_boolean() -> None:
+    with pytest.raises(TranspileError, match="boolean"):
+        analyze(
+            """
+            interface Forma { }
+            class Circulo implements Forma { }
+            class Main {
+                public static void main(String[] args) {
+                    Forma f = new Circulo();
+                    switch (f) {
+                        case Circulo c when 1 -> System.out.println("a");
+                        default -> System.out.println("x");
+                    }
+                }
+            }
+            """
+        )
+
+
+def test_switch_pattern_rejects_classic_colon() -> None:
+    with pytest.raises(TranspileError, match="->"):
+        analyze(
+            """
+            interface Forma { }
+            class Circulo implements Forma { }
+            class Main {
+                public static void main(String[] args) {
+                    Forma f = new Circulo();
+                    switch (f) {
+                        case Circulo c:
+                            break;
+                        default:
+                            break;
+                    }
+                }
+            }
+            """
+        )
+
+
+def test_switch_null_requires_reference_selector() -> None:
+    with pytest.raises(TranspileError, match="referência"):
+        analyze(
+            """
+            class Main {
+                public static void main(String[] args) {
+                    int x = 1;
+                    switch (x) {
+                        case null -> System.out.println("nulo");
+                        default -> System.out.println("x");
+                    }
+                }
+            }
+            """
+        )
+
+
+def test_switch_guard_requires_pattern() -> None:
+    with pytest.raises(TranspileError, match="when"):
+        analyze(
+            """
+            class Main {
+                public static void main(String[] args) {
+                    int x = 1;
+                    switch (x) {
+                        case 1 when x > 0 -> System.out.println("a");
+                        default -> System.out.println("x");
+                    }
+                }
+            }
+            """
+        )
+
+
 def test_annotation_registration_and_usage() -> None:
     program, analyzer = analyze(
         """
