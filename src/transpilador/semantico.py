@@ -97,6 +97,7 @@ class ClassInfo:
     methods: dict[str, MethodInfo] = field(default_factory=dict)
     ctors: list[CtorInfo] = field(default_factory=list)
     interfaces: list[str] = field(default_factory=list)
+    permits: list[str] = field(default_factory=list)
     node: ast.ClassDecl | None = None
     has_main: bool = False
     is_interface: bool = False
@@ -697,6 +698,10 @@ class SemanticAnalyzer:
                 self._error("record não pode estender outra classe", cls)
             if "abstract" in cls.modifiers:
                 self._error("record não pode ser abstract", cls)
+            if {"sealed", "non-sealed"} & cls.modifiers:
+                self._error("record não pode ser sealed nem non-sealed", cls)
+        if is_enum and {"sealed", "non-sealed"} & cls.modifiers:
+            self._error("sealed enum ainda não é suportado", cls)
         if is_enum and len(set(cls.enum_constants)) != len(cls.enum_constants):
             self._error("constante de enum duplicada", cls)
         is_abstract = is_interface or (not is_enum and "abstract" in cls.modifiers)
@@ -711,6 +716,7 @@ class SemanticAnalyzer:
             name=cls.name,
             parent=cls.extends,
             interfaces=list(cls.implements),
+            permits=list(cls.permits),
             node=cls,
             is_interface=is_interface,
             is_abstract=is_abstract,
@@ -789,6 +795,127 @@ class SemanticAnalyzer:
                     visit(iface, path + [name])
 
             visit(info.name, [])
+
+        self._validate_sealed()
+
+    def _direct_subtypes(self, name: str) -> list[ClassInfo]:
+        return [
+            info
+            for info in self.classes.values()
+            if info.parent == name or name in info.interfaces
+        ]
+
+    def _validate_sealed(self) -> None:
+        effective: dict[str, set[str]] = {}
+
+        for info in self.classes.values():
+            modifiers = info.node.modifiers if info.node is not None else set()
+            sealed = "sealed" in modifiers
+            non_sealed = "non-sealed" in modifiers
+
+            if sealed and non_sealed:
+                self._error(
+                    f"'{info.name}' não pode ser sealed e non-sealed ao mesmo tempo",
+                    info.node,
+                )
+            if info.permits and not sealed:
+                self._error(
+                    f"'{info.name}' usa permits, mas não é sealed",
+                    info.node,
+                )
+            if not sealed:
+                continue
+            if "final" in modifiers:
+                self._error(f"'{info.name}' não pode ser sealed e final", info.node)
+            if len(set(info.permits)) != len(info.permits):
+                self._error(f"permits repetido em '{info.name}'", info.node)
+
+            direct = self._direct_subtypes(info.name)
+            direct_names = {sub.name for sub in direct}
+
+            if info.permits:
+                for permitted in info.permits:
+                    if permitted == info.name:
+                        self._error(
+                            f"'{info.name}' não pode permitir a si mesmo",
+                            info.node,
+                        )
+                    if permitted not in self.classes:
+                        self._error(
+                            f"tipo permitido '{permitted}' de '{info.name}' não encontrado",
+                            info.node,
+                        )
+                    if permitted not in direct_names:
+                        self._error(
+                            f"'{permitted}' não é subtipo direto de '{info.name}'",
+                            info.node,
+                        )
+                effective[info.name] = set(info.permits)
+            else:
+                if not direct:
+                    self._error(
+                        f"sealed '{info.name}' precisa de permits ou de subtipos",
+                        info.node,
+                    )
+                effective[info.name] = set(direct_names)
+
+        for info in self.classes.values():
+            supertypes = []
+            if info.parent:
+                supertypes.append(info.parent)
+            supertypes.extend(info.interfaces)
+
+            for super_name in supertypes:
+                super_info = self.classes.get(super_name)
+                if super_info is None:
+                    continue
+                if "sealed" in (super_info.node.modifiers if super_info.node else set()):
+                    if info.name not in effective.get(super_name, set()):
+                        self._error(
+                            f"'{info.name}' não é permitido por '{super_name}'",
+                            info.node,
+                        )
+
+            modifiers = info.node.modifiers if info.node is not None else set()
+            if "non-sealed" in modifiers:
+                has_sealed_super = any(
+                    self.classes.get(name) is not None
+                    and "sealed"
+                    in (
+                        self.classes[name].node.modifiers
+                        if self.classes[name].node is not None
+                        else set()
+                    )
+                    for name in supertypes
+                )
+                if not has_sealed_super:
+                    self._error(
+                        f"'{info.name}' é non-sealed, mas não herda de tipo sealed",
+                        info.node,
+                    )
+
+        for name, permitted_names in effective.items():
+            sealed_info = self.classes[name]
+            for permitted_name in permitted_names:
+                permitted = self.classes[permitted_name]
+                sub_modifiers = (
+                    permitted.node.modifiers if permitted.node is not None else set()
+                )
+                if not (
+                    permitted.is_record
+                    or ({"final", "sealed", "non-sealed"} & sub_modifiers)
+                ):
+                    self._error(
+                        f"subtipo permitido '{permitted_name}' de '{name}' precisa "
+                        f"ser final, sealed ou non-sealed",
+                        permitted.node,
+                    )
+                if permitted.package != sealed_info.package:
+                    self._error(
+                        f"subtipo permitido '{permitted_name}' de '{name}' "
+                        f"deve estar no mesmo pacote",
+                        permitted.node,
+                    )
 
     def _declare_members(self, cls: ast.ClassDecl) -> None:
         info = self.classes[cls.name]

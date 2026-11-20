@@ -216,8 +216,8 @@ externos são ignorados; aliases manuais de `use` não são suportados.
 21, com diagnósticos explícitos para recursos modernos ainda não suportados.
 **Motivo:** o código aceito já é Java 21 válido; o que falta é sintaxe nova,
 não uma mudança no pipeline.
-**Consequência:** os testes usam `javac --release 21`; `sealed` e
-`@interface` falham com mensagem clara em vez de erro genérico.
+**Consequência:** os testes usam `javac --release 21`; `@interface` falha com
+mensagem clara em vez de erro genérico.
 **Limitações:** não são esses recursos que estão implementados; eles apenas
 são diagnosticados.
 
@@ -292,6 +292,22 @@ por componente. Um construtor canônico explícito é aceito e não é duplicado
 campos de instância extras e construtores não canônicos são rejeitados.
 **Limitações:** sem `equals`/`hashCode`/`toString` automáticos, sem construtor
 compacto e sem record patterns; componentes não podem ser genéricos.
+
+## 10.17. Sealed, non-sealed e permits
+
+**Decisão:** suportar `sealed`/`non-sealed` em classes e interfaces e
+`permits` em classes/interfaces sealed, com inferência de permits quando os
+subtipos diretos estão no mesmo arquivo/projeto.
+**Motivo:** completar a modelagem de hierarquias fechadas de Java 21 e
+permitir `switch` exaustivo no futuro.
+**Consequência:** a checagem é toda em compilação: subtipos diretos precisam
+ser permitidos; cada permitido precisa ser `final`, `sealed` ou `non-sealed`;
+`permits` só vale em tipo sealed; `non-sealed` exige supertipo sealed; tudo
+no mesmo pacote. O codegen emite classes/interfaces PHP normais, sem
+`sealed`/`permits`.
+**Limitações:** PHP não tem equivalente de runtime, então extensão fora do
+conjunto permitido não é impedida em tempo de execução; `sealed enum` ainda
+não é suportado.
 
 ## 11. Sobrecarga rejeitada
 

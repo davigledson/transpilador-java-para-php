@@ -194,13 +194,14 @@ class JavaParser:
     # ------------------------------------------------------------------
 
     def p_class_decl(self, p):
-        "class_decl : modifiers CLASS TYPEID extends_opt implements_opt LBRACE class_body RBRACE"
+        "class_decl : modifiers CLASS TYPEID extends_opt implements_opt permits_opt LBRACE class_body RBRACE"
         line, col = self._pos(p, 2)
         p[0] = ast.ClassDecl(
             name=p[3],
             extends=p[4],
-            members=p[7],
+            members=p[8],
             implements=p[5],
+            permits=p[6],
             modifiers=p[1],
             is_interface=False,
             line=line,
@@ -208,13 +209,14 @@ class JavaParser:
         )
 
     def p_interface_decl(self, p):
-        "interface_decl : modifiers INTERFACE TYPEID extends_opt LBRACE interface_body RBRACE"
+        "interface_decl : modifiers INTERFACE TYPEID extends_opt permits_opt LBRACE interface_body RBRACE"
         line, col = self._pos(p, 2)
         p[0] = ast.ClassDecl(
             name=p[3],
             extends=p[4],
-            members=p[6],
+            members=p[7],
             implements=[],
+            permits=p[5],
             modifiers=p[1],
             is_interface=True,
             line=line,
@@ -311,6 +313,14 @@ class JavaParser:
         "implements_opt : empty"
         p[0] = []
 
+    def p_permits_opt(self, p):
+        "permits_opt : PERMITS name_list"
+        p[0] = p[2]
+
+    def p_permits_empty(self, p):
+        "permits_opt : empty"
+        p[0] = []
+
     def p_name_list_many(self, p):
         "name_list : name_list COMMA name_item"
         p[0] = p[1] + [p[3]]
@@ -344,12 +354,11 @@ class JavaParser:
 
     def p_modifier_sealed(self, p):
         "modifier : SEALED"
-        line, col = self._pos(p, 1)
-        raise TranspileError(
-            "sealed classes ainda não são suportadas",
-            line,
-            col,
-        )
+        p[0] = "sealed"
+
+    def p_modifier_non_sealed(self, p):
+        "modifier : NON_SEALED"
+        p[0] = "non-sealed"
 
     def p_annotation(self, p):
         "annotation : AT ID"

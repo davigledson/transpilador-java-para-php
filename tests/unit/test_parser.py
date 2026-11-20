@@ -185,6 +185,25 @@ def test_try_catch_finally_and_throw_syntax() -> None:
     assert isinstance(stmt.body.stmts[0], ast.Throw)
 
 
+def test_sealed_and_non_sealed_syntax() -> None:
+    program = parse(
+        """
+        sealed interface Forma permits Circulo, Quadrado { }
+        final class Circulo implements Forma { }
+        non-sealed class Quadrado implements Forma { }
+        sealed abstract class Animal permits Cachorro { }
+        final class Cachorro extends Animal { }
+        """
+    )
+    forma = program.classes[0]
+    assert "sealed" in forma.modifiers
+    assert forma.permits == ["Circulo", "Quadrado"]
+    assert "non-sealed" in program.classes[2].modifiers
+    animal = program.classes[3]
+    assert animal.permits == ["Cachorro"]
+    assert "abstract" in animal.modifiers
+
+
 def test_record_syntax() -> None:
     program = parse(
         """
@@ -444,7 +463,6 @@ def test_switch_arrow_and_expression_syntax() -> None:
     ("source", "message"),
     [
         ("public @interface Foo { }", "@interface"),
-        ("sealed class A { }", "sealed"),
     ],
 )
 def test_unsupported_java21_diagnostics(source: str, message: str) -> None:

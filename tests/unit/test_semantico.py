@@ -392,6 +392,149 @@ def test_try_catch_finally_and_get_message() -> None:
     )
 
 
+def test_sealed_hierarchy() -> None:
+    analyze(
+        """
+        sealed interface Forma permits Circulo, Quadrado {
+            double area();
+        }
+        final class Circulo implements Forma {
+            public double area() { return 1.0; }
+        }
+        non-sealed class Quadrado implements Forma {
+            public double area() { return 2.0; }
+        }
+        sealed abstract class Animal permits Cachorro {
+            abstract String som();
+        }
+        final class Cachorro extends Animal {
+            String som() { return "latido"; }
+        }
+        class Main {
+            public static void main(String[] args) {
+                Forma f = new Circulo();
+                System.out.println(f.area());
+            }
+        }
+        """
+    )
+
+
+def test_sealed_allows_record_as_permitted_subtype() -> None:
+    analyze(
+        """
+        sealed interface Forma permits Ponto { }
+        record Ponto(int x) implements Forma { }
+        class Main {
+            public static void main(String[] args) { }
+        }
+        """
+    )
+
+
+def test_sealed_infers_permits() -> None:
+    analyze(
+        """
+        sealed interface Forma { }
+        final class Circulo implements Forma { }
+        class Main {
+            public static void main(String[] args) { }
+        }
+        """
+    )
+
+
+def test_sealed_subtype_must_be_permitted() -> None:
+    with pytest.raises(TranspileError, match="permitido"):
+        analyze(
+            """
+            sealed interface Forma permits Circulo { }
+            final class Circulo implements Forma { }
+            final class Quadrado implements Forma { }
+            class Main {
+                public static void main(String[] args) { }
+            }
+            """
+        )
+
+
+def test_sealed_permitted_type_must_be_final_sealed_or_non_sealed() -> None:
+    with pytest.raises(TranspileError, match="final, sealed ou non-sealed"):
+        analyze(
+            """
+            sealed interface Forma permits Circulo { }
+            class Circulo implements Forma { }
+            class Main {
+                public static void main(String[] args) { }
+            }
+            """
+        )
+
+
+def test_sealed_permitted_type_must_be_direct_subtype() -> None:
+    with pytest.raises(TranspileError, match="subtipo direto"):
+        analyze(
+            """
+            sealed interface Forma permits Circulo { }
+            final class Base implements Forma { }
+            final class Circulo extends Base { }
+            class Main {
+                public static void main(String[] args) { }
+            }
+            """
+        )
+
+
+def test_permits_requires_sealed() -> None:
+    with pytest.raises(TranspileError, match="permits"):
+        analyze(
+            """
+            class Forma permits Circulo { }
+            class Circulo extends Forma { }
+            class Main {
+                public static void main(String[] args) { }
+            }
+            """
+        )
+
+
+def test_non_sealed_requires_sealed_supertype() -> None:
+    with pytest.raises(TranspileError, match="non-sealed"):
+        analyze(
+            """
+            non-sealed class A { }
+            class Main {
+                public static void main(String[] args) { }
+            }
+            """
+        )
+
+
+def test_sealed_cannot_be_final() -> None:
+    with pytest.raises(TranspileError, match="final"):
+        analyze(
+            """
+            sealed final class A permits B { }
+            final class B extends A { }
+            class Main {
+                public static void main(String[] args) { }
+            }
+            """
+        )
+
+
+def test_record_cannot_be_sealed() -> None:
+    with pytest.raises(TranspileError, match="sealed"):
+        analyze(
+            """
+            sealed record Ponto(int x) { }
+            class Main {
+                public static void main(String[] args) { }
+            }
+            """
+        )
+
+
 def test_record_components_accessors_and_constructor() -> None:
     program, _analyzer = analyze(
         """

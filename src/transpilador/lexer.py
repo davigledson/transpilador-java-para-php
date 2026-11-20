@@ -152,6 +152,8 @@ class JavaLexer:
         "DEFAULT",
         "RECORD",
         "SEALED",
+        "NON_SEALED",
+        "PERMITS",
         "VAR",
         "YIELD",
         "RETURN",
@@ -246,6 +248,7 @@ class JavaLexer:
         "default": "DEFAULT",
         "record": "RECORD",
         "sealed": "SEALED",
+        "permits": "PERMITS",
         "var": "VAR",
         "yield": "YIELD",
         "return": "RETURN",
@@ -320,6 +323,11 @@ class JavaLexer:
     # ------------------------------------------------------------------
     # Identificadores e palavras reservadas
     # ------------------------------------------------------------------
+
+    def t_NON_SEALED(self, t):
+        r"non-sealed"
+        t.col = self._column(t)
+        return t
 
     def t_ID(self, t):
         r"[A-Za-z_][A-Za-z0-9_]*"

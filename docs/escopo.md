@@ -10,8 +10,9 @@ limitação.
 |---|---|
 | Estrutura | classes, campos, métodos, construtores, `this`, `new`, `static`, `final`, `public/private/protected` |
 | Sintaxe moderna | text blocks (`"""`) e anotações com argumentos (parseadas e ignoradas) |
-| Java 21 | source level 21 para o subconjunto; diagnósticos claros para sealed/`@interface`/etc. |
+| Java 21 | source level 21 para o subconjunto; diagnósticos claros para `@interface`/etc. |
 | Records | componentes, construtor canônico, acessores, métodos, static e `implements` |
+| Sealed | `sealed`, `non-sealed`, `permits` e inferência de permits; checagem de subtipos |
 | `var` | inferência em variáveis locais, `for` clássico e `for-each` |
 | `switch` 21 | statement arrow, switch expression e `yield` |
 | Casts/instanceof | casts primitivos e de referência; `instanceof` para classes/interfaces/String/arrays, com pattern binding |
@@ -52,6 +53,7 @@ limitação.
 | `switch` | `continue` dentro do switch, labels e pattern matching em `switch` |
 | enums | só constantes; sem campos, métodos, `values()` ou `ordinal()` |
 | records | sem `equals`/`hashCode`/`toString` gerados, sem construtor compacto nem record patterns; campos de instância extras são proibidos |
+| sealed | checagem só em compilação; PHP gerado não impede extensão em runtime |
 | lambdas/streams | lambda só de expressão, sem method references; `collect` só `Collectors.toList()`; sem streams paralelos/infinitos |
 | modo projeto | nomes simples de classe ainda precisam ser únicos (sem aliases/namespaces duplicados); sem `.jar` e sem build incremental |
 | nomes PHP | classes com nome de palavra reservada do PHP (ex.: `Var`) precisam ser renomeadas |
@@ -76,7 +78,7 @@ limitação.
 - Genéricos: só listas, mapas e sets; sem tipos boxed (`Integer` etc.).
 - Classes internas e anônimas.
 - Reflection, threads, `synchronized`, `volatile`.
-- Sealed classes e pattern matching em `switch`.
+- Pattern matching em `switch`.
 - Record patterns, construtor compacto e `equals`/`hashCode`/`toString` automáticos.
 - `BigDecimal`, `BigInteger`, datas.
 - `>>>` e operadores bit a bit.
@@ -93,6 +95,6 @@ limitação.
 
 ## Métricas atuais
 
-- Exemplos no diff: **30/30**
-- Testes unitários: **123**
+- Exemplos no diff: **31/31**
+- Testes unitários: **134**
 - Linhas aproximadas do transpilador: ver `wc -l src/transpilador/*.py`

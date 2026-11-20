@@ -27,6 +27,8 @@ de prometer Java inteiro.
 - Records (`record Ponto(int x, int y) { }`): componentes, construtor
   canônico, acessores `x()`/`y()`, métodos, campos/métodos static e
   `implements`.
+- Sealed types: `sealed`, `non-sealed` e `permits` em classes/interfaces,
+  com checagem de subtipos e `final`/`sealed`/`non-sealed`.
 - Lambdas de expressão (`n -> n.length() > 2`) e streams:
   `forEach`, `removeIf`, `filter`, `map`, `collect(Collectors.toList())`,
   `count`, `anyMatch`/`allMatch`/`noneMatch`, `limit` e `sorted`.
@@ -97,12 +99,11 @@ diagnóstico explícito, por exemplo:
 
 ```text
 public @interface Foo { }      → @interface ainda não é suportado
-sealed class A { }             → sealed classes ainda não são suportadas
 ```
 
-Recursos como sealed e pattern matching em `switch` ficam para fases
+Recursos como `@interface` e pattern matching em `switch` ficam para fases
 futuras. `var`, `switch` arrow/expression, pattern `instanceof`,
-try-with-resources, multi-catch e records já são suportados.
+try-with-resources, multi-catch, records e sealed classes já são suportados.
 
 ## Modo projeto (vários arquivos)
 
@@ -206,8 +207,8 @@ O transpilador falha com diagnóstico no formato:
 caminho/Arquivo.java:linha:coluna: erro: mensagem
 ```
 
-Exemplo: `String s = 1;` gera erro de tipo; sealed, reflection e APIs de
-framework não fazem parte do subconjunto.
+Exemplo: `String s = 1;` gera erro de tipo; reflection e APIs de framework
+não fazem parte do subconjunto.
 
 
 ## Testes
@@ -221,7 +222,7 @@ make demo   # diferencial só do Banco
 ```
 
 O teste diferencial compila o `.java`, executa, transpila, roda `php -l`,
-executa o PHP e compara a saída. Hoje: **30/30 casos**.
+executa o PHP e compara a saída. Hoje: **31/31 casos**.
 
 O CI em `.github/workflows/ci.yml` roda `make check` em cada push/PR com
 Python, PHP 8.3 e JDK 21.
@@ -325,7 +326,8 @@ arrow/expression é suportado; `continue` dentro de `switch` ainda não. Enums t
 constantes: sem campos, métodos, `values()` ou `ordinal()`. Lambdas só com
 corpo de expressão, sem method references; `collect` só aceita
 `Collectors.toList()`. Records não geram `equals`/`hashCode`/`toString`
-próprios, não aceitam construtor compacto nem record patterns.
+próprios, não aceitam construtor compacto nem record patterns. Sealed é
+verificado em compilação e não tem equivalente em runtime no PHP.
 Arrays multidimensionais também ficam para depois (`T[][]` no tipo, mas
 `new T[n][m]` e inicializadores `{...}` não). Interfaces aceitam só métodos
 abstratos: sem `default`, sem constantes e sem métodos `static`/`private`.
@@ -344,8 +346,8 @@ Detalhes e a matriz completa estão em [`docs/escopo.md`](docs/escopo.md).
 - [x] Lexer/parser do subconjunto
 - [x] AST + análise semântica básica
 - [x] Codegen PHP + runtime
-- [x] 30 programas de exemplo passando no diff
-- [x] 123 testes unitários
+- [x] 31 programas de exemplo passando no diff
+- [x] 134 testes unitários
 - [x] Herança simples (`extends`, `super`, override, polimorfismo)
 - [x] Interfaces e classes abstratas
 - [x] `ArrayList`/`List` + `Scanner`
@@ -366,4 +368,5 @@ Detalhes e a matriz completa estão em [`docs/escopo.md`](docs/escopo.md).
 - [x] Pattern `instanceof` (`obj instanceof Conta c`)
 - [x] Try-with-resources e multi-catch
 - [x] Records (componentes, construtor canônico e acessores)
+- [x] Sealed/non-sealed/permits
 - [ ] Relatório final e slides

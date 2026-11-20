@@ -343,6 +343,31 @@ def test_cast_and_instanceof_codegen() -> None:
     assert "JCast::to($o, A::class)" in php
 
 
+def test_sealed_codegen() -> None:
+    php = generate(
+        """
+        sealed interface Forma permits Circulo, Quadrado {
+            double area();
+        }
+        final class Circulo implements Forma {
+            public double area() { return 1.0; }
+        }
+        non-sealed class Quadrado implements Forma {
+            public double area() { return 2.0; }
+        }
+        class Main {
+            public static void main(String[] args) { }
+        }
+        """
+    )
+    assert "interface Forma" in php
+    assert "class Circulo implements Forma" in php
+    assert "class Quadrado implements Forma" in php
+    assert "sealed" not in php
+    assert "permits" not in php
+    assert "non-sealed" not in php
+
+
 def test_record_codegen() -> None:
     php = generate(
         """

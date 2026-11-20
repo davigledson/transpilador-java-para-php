@@ -80,6 +80,7 @@ class ClassDecl(Node):
     extends: str | None
     members: list[Node]
     implements: list[str] = field(default_factory=list)
+    permits: list[str] = field(default_factory=list)
     modifiers: set[str] = field(default_factory=set)
     is_interface: bool = False
     is_enum: bool = False
